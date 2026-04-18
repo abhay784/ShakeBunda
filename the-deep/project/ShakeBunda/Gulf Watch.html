@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gulf Watch — Ocean Risk Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&display=swap">
+<style>
+  :root {
+    --abyss: #03070e;
+    --abyss-2: #060c17;
+    --abyss-3: #0a1426;
+    --panel: rgba(10, 18, 32, 0.62);
+    --panel-edge: rgba(120, 180, 240, 0.08);
+    --panel-edge-hi: rgba(140, 200, 255, 0.22);
+    --ink: #e8f1ff;
+    --ink-dim: #8fa5c4;
+    --ink-faint: #536580;
+    --cyan: #4dd6ff;
+    --teal: #00e0c4;
+    --amber: #ffb347;
+    --crimson: #ff5470;
+    --violet: #a078ff;
+    --hot: #ff3864;
+    --grid: rgba(120, 180, 240, 0.055);
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --display: 'Instrument Serif', 'Times New Roman', serif;
+    --ui: 'Geist', 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--abyss); color: var(--ink); font-family: var(--ui); font-size: 13px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  body {
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(30, 70, 130, 0.18), transparent 55%),
+      radial-gradient(ellipse at 80% 100%, rgba(80, 30, 90, 0.14), transparent 55%),
+      var(--abyss);
+  }
+  /* grain */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.6  0 0 0 0 0.75  0 0 0 0 1  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: 0.4; mix-blend-mode: overlay;
+  }
+  #root { height: 100vh; }
+</style>
+<link rel="stylesheet" href="./src/gulf-styles.css">
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Tweak defaults block -->
+  <script>
+    window.__TWEAKS__ = /*EDITMODE-BEGIN*/{
+      "accent": "cyan",
+      "particleDensity": 1.0,
+      "glowStrength": 1.0,
+      "tempAnomaly": 0.9,
+      "showGrid": true,
+      "showScanlines": true,
+      "mode": "historical"
+    }/*EDITMODE-END*/;
+  </script>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="./src/gulf-map.jsx"></script>
+  <script type="text/babel" src="./src/gulf-panels.jsx"></script>
+  <script type="text/babel" src="./src/gulf-timeline.jsx"></script>
+  <script type="text/babel" src="./src/gulf-app.jsx"></script>
+</body>
+</html>
