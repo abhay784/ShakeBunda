@@ -6,10 +6,63 @@ Full PRD: `~/Downloads/gulf_watch_general_prd.html`.
 
 ## Three-layer architecture
 
-1. **Databricks (brain)** — ConvLSTM on raw SSH `.nc` files, MLflow-tracked, served as a REST endpoint. *Status: in progress, separate workstream.*
+1. **Databricks (brain)** ## ML Model — CNN Encoder + LSTM (LCE Separation Predictor)
+
+Two-stage spatial-temporal architecture:
+
+**Stage 1 — CNN Encoder (SSHEncoder)**
+- Input: single daily 2D SSH anomaly field (cropped Gulf grid, shape computed dynamically)
+- 2 conv layers (8 and 16 filters, 3x3 kernels), ReLU, MaxPool2d after each
+- Flattened and projected to 128-dim feature vector via Linear layer
+- Input h/w must be derived from actual cropped grid shape — never hardcoded
+
+**Stage 2 — LSTM Classifier (LCEPredictor)**
+- Input: 30-day sequence of 128-dim CNN feature vectors
+- Single LSTM layer, hidden size 64, dropout 0.2, batch_first=True
+- Two output heads: fc7 (t+7 separation probability), fc30 (t+30 separation probability)
+- Sigmoid activation on both outputs — binary classification, not regression
+
+**Prediction target:** LCE separation state (binary: 1 = eddy detached/separating, 0 = attached/building)
+**Labels:** Self-supervised from data — no external catalog. Separation flagged when LC zone 
+SSH anomaly > 0.17m AND gradient between LC zone and western Gulf drops sharply. 
+Smoothed with 5-day rolling window.
+
+**Fallback:** Toggle USE_CNN = False to fall back to scalar LSTM on LC zone time series 
+(input size 3: lc_ts, rolling_7, rolling_30). All downstream cells still run.
+
+**Training:** PyTorch, BCELoss, Adam lr=1e-3, batch size 32, 20 epochs max
+**Train split:** First 38 years of data (computed dynamically, not hardcoded to a year)
+**Validate split:** Remaining ~4 years
 2. **Marimo notebook (science UI)** — reactive notebook for Scripps judges. *Status: deferred until Databricks endpoint is live.*
 3. **Dashboard UI (judge experience)** — Next.js + TypeScript + deck.gl. 5 panels: 40-year timelapse, hurricane scrubber, prediction heatmap, climate sliders, ElevenLabs voice agent. *Status: mockup done elsewhere; wire to API once ported in.*
 
+## Dataset
+
+**File:** run2_clim_v2_ssh.nc (~2GB, NetCDF format)  
+**Source:** ECCO Gulf of Mexico State Estimation (Scripps / UCSD)  
+**Nature:** 40-year daily numerical model simulation — NOT a climatological mean. 
+"clim" in filename refers to the model run name.  
+**Coverage:** ~1982–2022, daily frames (~14,600 total), full Gulf of Mexico spatial grid
+
+**DBFS path (update to match upload location):**
+`/dbfs/FileStore/gulf_watch/run2_clim_v2_ssh.nc`
+
+**Variable name — handle all cases, detect at runtime:**
+Possible names: ssh, eta, zos, sea_surface_height, SSH, ETA, adt
+Use detection loop — never assume. Print all ds.data_vars if none found.
+
+**Coordinate names — detect at runtime:**
+- Latitude: lat, latitude, y, YC
+- Longitude: lon, longitude, x, XC
+- Time: time, TIME, t
+
+**Longitude convention — check before cropping:**
+May be stored as 0–360°E rather than −180–180°W.
+If ds[lon_dim].max() > 180: use 263–280 for Gulf crop instead of -97 to -80.
+
+**Memory — use chunked loading on Community Edition:**
+`xr.open_dataset(path, chunks={time_dim: 365})`
+Only call .load() and .values on the cropped Gulf subset, never the full dataset.
 ## Hard rules
 
 - **Do NOT redesign the dashboard UI.** The mockup is the source of truth — wire it, don't rebuild it.
@@ -18,17 +71,54 @@ Full PRD: `~/Downloads/gulf_watch_general_prd.html`.
 - **Marimo work is deferred.** Do not start until the ML endpoint is live.
 - **All Databricks calls go through `app/api/predict/route.ts`** — browser code calls that route, never the endpoint directly.
 
-## API contract
+## REST API Contract (Dashboard → Databricks Endpoint)
 
-`POST $DATABRICKS_ENDPOINT_URL` (proxied via `/api/predict`):
+POST https://<workspace>.azuredatabricks.net/serving-endpoints/gulf-watch-v1/invocations
 
-```
-Request:  { ssh_window: float[][], sst_delta: float, loop_depth: float }
-Response: { ri_probability: float[][], ri_days_per_year: float, mae: float }
-```
+**Request:**
+{
+  "date": "YYYY-MM-DD",          // date to generate heatmap for
+  "sst_delta": float,            // SST warming offset in °C (0 = baseline, maps to +0.025m SSH per °C)
+  "loop_depth": float            // Loop Current penetration 0–1 (reserved for Marimo, pass 0.5 as default)
+}
 
-Types + zod schemas live in `lib/databricks/types.ts`. The client tags stub responses with `source: "stub"` so the UI can show a "stub data" indicator during dev.
+**Response:**
+{
+  "ri_probability": float[][],        // 2D grid, 0-1 scale, Gulf bounding box
+  "lce_separation_prob_7d": float,    // model output: separation probability at t+7
+  "lce_separation_prob_30d": float,   // model output: separation probability at t+30
+  "ri_days_per_year": float,          // count of grid cells above 0.17m threshold, annualized
+  "highest_risk_zone": string         // human-readable label e.g. "Eastern Gulf, ~150mi south of Tampa"
+}
 
+Endpoint URL must be read from environment variable GULF_WATCH_ENDPOINT — no hardcoded credentials.
+Stub response format for local UI dev while model is training:
+{
+  "ri_probability": [[0.0]*20]*20,
+  "lce_separation_prob_7d": 0.5,
+  "lce_separation_prob_30d": 0.5,
+  "ri_days_per_year": 0.0,
+  "highest_risk_zone": "stub — model not connected"
+}
+## Model Evaluation Metrics
+
+**Primary metric:** AUC-ROC
+- Handles class imbalance (LCE separation events are rare relative to 40-year record)
+- Target: AUC-ROC > 0.70 on validation set
+
+**Secondary metric:** F1 score
+- Use threshold 0.5 on sigmoid output for binary classification
+- Report precision and recall separately for interpretability
+
+**Do not use MAE or RMSE** — these are regression metrics. 
+The model output is a probability (0–1), not a continuous value.
+
+**Katrina sanity check (required before demo):**
+- Plot lce_separation_prob_7d over the 90 days preceding Aug 28, 2005
+- Expected: probability rises 2–4 weeks before Aug 28
+- Print t+7 and t+30 probabilities for Aug 25, 2005 specifically
+- If probability is flat or near-zero on this date, model has not learned the signal — 
+  check label generation and class balance before proceeding
 ## Key science constants
 
 - **SSH > 17 cm = RI threshold** (Mainelli et al. 2008). Colormap should inflect here.
