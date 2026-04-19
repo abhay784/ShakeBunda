@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { GulfMap } from '@/components/GulfMap';
-import { LeftPanel, RightPanel, Analytics } from '@/components/GulfPanels';
+import { LeftPanel, RightPanel, Analytics, WarmingHero, regionName } from '@/components/GulfPanels';
 import { Timeline } from '@/components/GulfTimeline';
 import { buildGrid, detectEddies } from '@/lib/ocean/ssh';
+import { usePrediction } from '@/lib/hooks/usePrediction';
 
 function genSeries() {
   const ts: number[] = [], es: number[] = [], ps: number[] = [];
@@ -37,6 +38,11 @@ export default function Dashboard() {
     return isNaN(saved) ? (2021 - 1985) / 40 : saved;
   });
   const [anomaly, setAnomaly] = useState(0.9);
+  const [loopDepth, setLoopDepth] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0.5;
+    const saved = parseFloat(localStorage.getItem('gw.loopDepth') || '');
+    return isNaN(saved) ? 0.5 : saved;
+  });
   const [layers, setLayers] = useState({
     eddies: true, loopCurrent: true, riskZones: true, predictions: false,
   });
@@ -52,9 +58,13 @@ export default function Dashboard() {
   const [showScanlines, setShowScanlines] = useState(true);
   const [pin, setPin] = useState<Pin | null>(null);
   const [series] = useState(() => genSeries());
+  const [viewMode, setViewMode] = useState<'past' | 'future'>('past');
 
-  // Persist time
+  // Persist time + loop depth
   useEffect(() => { localStorage.setItem('gw.t', t.toString()); }, [t]);
+  useEffect(() => { localStorage.setItem('gw.loopDepth', loopDepth.toString()); }, [loopDepth]);
+
+  const { data: prediction } = usePrediction(t, anomaly, loopDepth);
 
   // Playback
   useEffect(() => {
@@ -101,6 +111,30 @@ export default function Dashboard() {
 
   const peakStrength = eddies.length > 0 ? Math.max(...eddies.map(e => e.strength * 17 + 8)) : 0;
 
+  const baselinePct = useMemo(() => {
+    const g0 = buildGrid(0, 0);
+    const e0 = detectEddies(g0);
+    if (e0.length === 0) return 0;
+    const top = e0.reduce((a, b) => (a.strength > b.strength ? a : b));
+    return Math.min(0.99, (top.strength - 0.35) * 1.15) * 100;
+  }, []);
+
+  const status = useMemo(() => {
+    const yearVal = 1985 + t * 40;
+    const year = Math.floor(yearVal);
+    const month = Math.floor((yearVal - year) * 12);
+    const monthName = ['January','February','March','April','May','June','July','August','September','October','November','December'][month];
+    const n = eddies.length;
+    const lc = n <= 1 ? 'intact' : (n >= 4 || peakStrength > 25 ? 'shedding' : 'extended');
+    if (n === 0) {
+      return `${monthName} ${year} · Loop Current ${lc} · Central Gulf basin at low RI risk · 0 warm eddies detected`;
+    }
+    const top = eddies.reduce((a, b) => (a.strength > b.strength ? a : b));
+    const prob = Math.min(0.99, (top.strength - 0.35) * 1.15 + anomaly * 0.08);
+    const level = prob < 0.4 ? 'low' : prob < 0.7 ? 'elevated' : 'high';
+    return `${monthName} ${year} · Loop Current ${lc} · ${regionName(top.x, top.y)} at ${level} RI risk · ${n} warm eddies detected`;
+  }, [t, anomaly, eddies, peakStrength]);
+
   return (
     <div
       className={`gw-app ${showScanlines ? 'scan' : ''}`}
@@ -109,10 +143,12 @@ export default function Dashboard() {
       <LeftPanel
         t={t} setT={setT}
         anomaly={anomaly} setAnomaly={setAnomaly}
+        loopDepth={loopDepth} setLoopDepth={setLoopDepth}
         layers={layers} setLayers={setLayers}
         mode={mode} setMode={setMode}
         speed={speed} setSpeed={setSpeed}
         playing={playing} setPlaying={setPlaying}
+        viewMode={viewMode} setViewMode={setViewMode}
       />
 
       <main className="gw-main">
@@ -120,13 +156,25 @@ export default function Dashboard() {
           <div className="gw-top-left">
             <span className="gw-breadcrumb active">GULF · 18–31°N · 98–80°W</span>
             <span className="gw-top-chip">
-              <i className="gw-dot live" />{mode === 'predicted' ? 'ORM-v3' : 'HINDCAST'}
+              <i className="gw-dot live" />{mode === 'predicted' ? 'ORM-v3' : 'Historical'}
             </span>
+            {prediction?.source === 'stub' && (
+              <span className="gw-top-chip gw-chip-demo">
+                <i className="gw-dot" /> DEMO DATA
+              </span>
+            )}
+            {prediction?.source === 'databricks' && (
+              <span className="gw-top-chip gw-chip-live">
+                <i className="gw-dot live" /> DATABRICKS
+              </span>
+            )}
           </div>
           <div className="gw-top-right">
             <span className="gw-top-stat">{eddyCount} eddies · {peakStrength.toFixed(1)}cm peak</span>
           </div>
         </div>
+
+        <WarmingHero anomaly={anomaly} setAnomaly={setAnomaly} primary={viewMode === 'future'} />
 
         <div className="gw-stage">
           <GulfMap
@@ -138,6 +186,7 @@ export default function Dashboard() {
             showGrid={showGrid}
             onEddyCount={setEddyCount}
             mode={mode}
+            riskOverlay={layers.predictions ? prediction?.ri_probability ?? null : null}
           />
 
           <div className="gw-stage-chrome">
@@ -161,7 +210,7 @@ export default function Dashboard() {
                 <b>26.4°N · 88.2°W</b>
                 <span>SSH <i>{(Math.sin(t * 30) * 8 + 12).toFixed(1)} cm</i></span>
                 <span>SST <i>{(28.4 + anomaly).toFixed(1)} °C</i></span>
-                <span>UOHC <i>{(85 + anomaly * 18).toFixed(0)} kJ/cm²</i></span>
+                <span>Ocean Heat Content <i>{(85 + anomaly * 18).toFixed(0)} kJ/cm²</i></span>
               </div>
             </div>
 
@@ -174,9 +223,7 @@ export default function Dashboard() {
             )}
 
             <div className="gw-stage-meta">
-              <span>FRAME {((t * 14610) | 0).toString().padStart(5, '0')} / 14610</span>
-              <span>· AVISO L4 DUACS-2021 · 0.25°</span>
-              <span>· {playing ? `▶ ${speed}×` : '❚❚ paused'}</span>
+              <span>{status}</span>
             </div>
           </div>
         </div>
@@ -190,6 +237,8 @@ export default function Dashboard() {
       <RightPanel
         t={t} anomaly={anomaly} grid={grid} eddies={eddies} mode={mode}
         onFly={flyTo}
+        baselinePct={baselinePct}
+        prediction={prediction}
       />
 
       {tweakOpen && (

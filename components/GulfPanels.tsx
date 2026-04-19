@@ -83,6 +83,8 @@ interface LeftPanelProps {
   setT: (t: number) => void;
   anomaly: number;
   setAnomaly: (a: number) => void;
+  loopDepth: number;
+  setLoopDepth: (d: number) => void;
   layers: { eddies: boolean; loopCurrent: boolean; riskZones: boolean; predictions: boolean };
   setLayers: (fn: (l: LeftPanelProps['layers']) => LeftPanelProps['layers']) => void;
   mode: string;
@@ -91,9 +93,25 @@ interface LeftPanelProps {
   setSpeed: (s: number) => void;
   playing: boolean;
   setPlaying: (fn: (p: boolean) => boolean) => void;
+  viewMode: 'past' | 'future';
+  setViewMode: (v: 'past' | 'future') => void;
 }
 
-export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mode, setMode, speed, setSpeed, playing, setPlaying }: LeftPanelProps) {
+export function ViewModeSwitch({ viewMode, setViewMode }: { viewMode: 'past' | 'future'; setViewMode: (v: 'past' | 'future') => void }) {
+  return (
+    <div className="gw-viewmode-switch" data-view={viewMode}>
+      <button className={viewMode === 'past' ? 'on' : ''} onClick={() => setViewMode('past')}>
+        Explore the past
+      </button>
+      <button className={viewMode === 'future' ? 'on' : ''} onClick={() => setViewMode('future')}>
+        Project the future
+      </button>
+      <div className="gw-viewmode-ind" />
+    </div>
+  );
+}
+
+export function LeftPanel({ t, setT, anomaly, setAnomaly, loopDepth, setLoopDepth, layers, setLayers, mode, setMode, speed, setSpeed, playing, setPlaying, viewMode, setViewMode }: LeftPanelProps) {
   const yearVal = 1985 + t * 40;
   const year = Math.floor(yearVal);
   const dayOfYear = Math.floor(((yearVal - year) * 365) + 1);
@@ -102,6 +120,7 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
 
   return (
     <aside className="gw-left">
+      <ViewModeSwitch viewMode={viewMode} setViewMode={setViewMode} />
       <div className="gw-brand">
         <div className="gw-brand-mark">
           <svg viewBox="0 0 40 40" width="32" height="32">
@@ -113,7 +132,7 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
         </div>
         <div className="gw-brand-txt">
           <div className="gw-brand-name">GULF WATCH<span className="gw-brand-mk">/</span><em>v2.6</em></div>
-          <div className="gw-brand-sub">Ocean Risk Observation Console</div>
+          <div className="gw-brand-sub">Gulf Watch — Hurricane Risk Under Climate Change</div>
         </div>
         <div className="gw-brand-status">
           <span className="gw-dot live" /> LIVE
@@ -135,7 +154,7 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
             <span className="gw-mode-glyph">◉</span> Historical
           </button>
           <button className={mode === 'predicted' ? 'on' : ''} onClick={() => setMode('predicted')}>
-            <span className="gw-mode-glyph">◈</span> Predicted (AI)
+            <span className="gw-mode-glyph">◈</span> Climate Projection
           </button>
           <div className="gw-mode-ind" />
         </div>
@@ -147,11 +166,10 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
       </Panel>
 
       <Panel title="SIMULATION">
-        <Slider label="Time index" value={t} min={0} max={1} step={0.0005}
-          onChange={setT} hint={`t = ${(t * 100).toFixed(2)}% of 40-yr window`} />
-        <Slider label="Temperature anomaly" value={anomaly} min={0} max={3} step={0.05}
-          onChange={setAnomaly} unit=" °C"
-          hint={`amplifies SSH by ${(anomaly * 0.55 * 100) | 0}%`} />
+        {viewMode === 'past' && (
+          <Slider label="Time index" value={t} min={0} max={1} step={0.0005}
+            onChange={setT} hint={`t = ${(t * 100).toFixed(2)}% of 40-yr window`} />
+        )}
         <div className="gw-play-row">
           <button className="gw-play" onClick={() => setPlaying(p => !p)}>
             {playing ? <span>❚❚</span> : <span>▶</span>}
@@ -163,6 +181,19 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
             ))}
           </div>
         </div>
+      </Panel>
+
+      <Panel title="OCEAN STATE" meta="Loop Current penetration">
+        <Slider
+          label="Loop depth"
+          value={loopDepth}
+          min={0}
+          max={1}
+          step={0.01}
+          onChange={setLoopDepth}
+          unit=""
+          hint={`${(loopDepth * 100).toFixed(0)}% — ${loopDepth < 0.33 ? 'shallow / attached' : loopDepth < 0.67 ? 'mid penetration' : 'deep / shedding window'}`}
+        />
       </Panel>
 
       <Panel title="FEATURE LAYERS">
@@ -183,6 +214,58 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, layers, setLayers, mod
   );
 }
 
+// --- WARMING HERO ---
+
+const WARMING_STOPS = [
+  { value: 0, label: 'Today', sub: '0°C' },
+  { value: 1, label: '2040', sub: '+1°C' },
+  { value: 2, label: '2060', sub: '+2°C' },
+  { value: 3, label: '2080', sub: '+3°C' },
+];
+
+interface WarmingHeroProps {
+  anomaly: number;
+  setAnomaly: (a: number) => void;
+  primary?: boolean;
+}
+
+export function WarmingHero({ anomaly, setAnomaly, primary = false }: WarmingHeroProps) {
+  const pct = (anomaly / 3) * 100;
+  return (
+    <div className={`gw-hero-slider${primary ? ' gw-hero-primary' : ''}`}>
+      <div className="gw-hero-head">
+        <span className="gw-hero-label">Gulf warming scenario</span>
+        <span className="gw-hero-val">+{anomaly.toFixed(2)} °C</span>
+      </div>
+      <div className="gw-hero-track">
+        <div className="gw-hero-fill" style={{ width: `${pct}%` }} />
+        <input
+          type="range"
+          min={0}
+          max={3}
+          step={0.05}
+          value={anomaly}
+          onChange={e => setAnomaly(parseFloat(e.target.value))}
+        />
+        <div className="gw-hero-stops">
+          {WARMING_STOPS.map(s => (
+            <button
+              key={s.value}
+              className={`gw-hero-stop${Math.abs(anomaly - s.value) < 0.03 ? ' on' : ''}`}
+              style={{ left: `${(s.value / 3) * 100}%` }}
+              onClick={() => setAnomaly(s.value)}
+            >
+              <i />
+              <b>{s.label}</b>
+              <em>{s.sub}</em>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- RIGHT PANEL ---
 
 interface Region {
@@ -194,6 +277,14 @@ interface Region {
   trend: string;
 }
 
+interface PredictionView {
+  ri_days_per_year: number;
+  lce_separation_prob_7d: number;
+  lce_separation_prob_30d: number;
+  highest_risk_zone: string;
+  source: 'databricks' | 'stub';
+}
+
 interface RightPanelProps {
   t: number;
   anomaly: number;
@@ -201,9 +292,11 @@ interface RightPanelProps {
   eddies: Eddy[];
   mode: string;
   onFly?: (r: Region) => void;
+  baselinePct: number;
+  prediction?: PredictionView | null;
 }
 
-function regionName(x: number, y: number): string {
+export function regionName(x: number, y: number): string {
   if (y > 0.55 && x < 0.45) return 'NW Gulf · Texas shelf';
   if (y > 0.55 && x > 0.55) return 'NE Gulf · Panhandle';
   if (x > 0.6 && y < 0.45) return 'SE Gulf · Florida straits';
@@ -211,7 +304,7 @@ function regionName(x: number, y: number): string {
   return 'Central Gulf basin';
 }
 
-export function RightPanel({ t, anomaly, grid, eddies, mode, onFly }: RightPanelProps) {
+export function RightPanel({ t, anomaly, grid, eddies, mode, onFly, baselinePct, prediction }: RightPanelProps) {
   const [chat, setChat] = useState([
     { role: 'sys', text: 'Ocean Risk Engine initialized. SSH surrogate ORM-v3 loaded.' },
   ]);
@@ -256,7 +349,31 @@ export function RightPanel({ t, anomaly, grid, eddies, mode, onFly }: RightPanel
 
   return (
     <aside className="gw-right">
-      <Panel title="OCEAN RISK ENGINE" meta={mode === 'predicted' ? 'FORECAST · τ+14d' : 'HINDCAST'}>
+      <Panel
+        title="LCE SEPARATION MODEL"
+        meta={prediction ? (prediction.source === 'stub' ? 'DEMO DATA' : 'LIVE · gulf-watch-v1') : 'connecting…'}
+      >
+        <div className="gw-model-out">
+          <div className="gw-model-row">
+            <span>P(separation · 7d)</span>
+            <b>{prediction ? `${(prediction.lce_separation_prob_7d * 100).toFixed(0)}%` : '—'}</b>
+          </div>
+          <div className="gw-model-row">
+            <span>P(separation · 30d)</span>
+            <b>{prediction ? `${(prediction.lce_separation_prob_30d * 100).toFixed(0)}%` : '—'}</b>
+          </div>
+          <div className="gw-model-row">
+            <span>RI days / yr</span>
+            <b>{prediction ? prediction.ri_days_per_year.toFixed(1) : '—'}</b>
+          </div>
+          <div className="gw-model-row stack">
+            <span>Highest-risk zone</span>
+            <em>{prediction ? prediction.highest_risk_zone : '—'}</em>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="OCEAN RISK ENGINE" meta={mode === 'predicted' ? 'FORECAST · τ+14d' : 'Historical'}>
         <div className="gw-risk-hero">
           <div className="gw-risk-gauge">
             <svg viewBox="0 0 120 60" width="100%" height="80">
@@ -284,6 +401,7 @@ export function RightPanel({ t, anomaly, grid, eddies, mode, onFly }: RightPanel
             <div className="gw-gauge-lbl">
               <b>{((regions[0]?.prob || 0) * 100).toFixed(0)}%</b>
               <span>Basin-wide RI probability · next 72h</span>
+              <span className="gw-gauge-baseline">vs. {baselinePct.toFixed(0)}% in 1985</span>
             </div>
           </div>
         </div>
@@ -329,7 +447,7 @@ export function RightPanel({ t, anomaly, grid, eddies, mode, onFly }: RightPanel
           <button type="submit">↵</button>
         </form>
         <div className="gw-chat-suggest">
-          {['Why is SSH high near Tampa?', 'Compare 2005 to 2017', 'Predict eddy shedding'].map(s =>
+          {['Which ports are most at risk this season?', 'How does +2°C change landfall risk for Louisiana?', 'When was the last time conditions were this dangerous?'].map(s =>
             <button key={s} onClick={() => setInput(s)}>{s}</button>
           )}
         </div>
