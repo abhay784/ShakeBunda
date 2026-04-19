@@ -7,3 +7,6 @@ out/
 *.log
 .DS_Store
 coverage/
+__marimo__/
+__pycache__/
+*.pyc

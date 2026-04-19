@@ -1,0 +1,161 @@
+{
+  "source": "NOAA IBTrACS North Atlantic v04r01",
+  "bbox": {
+    "lat": [
+      18.0,
+      32.0
+    ],
+    "lon": [
+      -98.0,
+      -78.0
+    ]
+  },
+  "ri_definition": {
+    "wind_delta_kt": 30.0,
+    "window_hours": 24,
+    "reference": "NHC standard (\u2265 30 kt / 24 h)"
+  },
+  "counts": {
+    "gulf_storms_since_1982": 275,
+    "ri_episodes_total": 108,
+    "ri_episodes_gulf": 63,
+    "years_covered": [
+      1982,
+      2024
+    ]
+  },
+  "top_gulf_ri_events": [
+    {
+      "NAME": "MILTON",
+      "SEASON": 2024,
+      "start_time": "2024-10-06 18:00:00",
+      "wind_start": 70.0,
+      "wind_end": 150.0,
+      "delta_kt": 80.0
+    },
+    {
+      "NAME": "GUSTAV",
+      "SEASON": 2008,
+      "start_time": "2008-08-29 21:00:00",
+      "wind_start": 70.0,
+      "wind_end": 132.0,
+      "delta_kt": 62.0
+    },
+    {
+      "NAME": "RITA",
+      "SEASON": 2005,
+      "start_time": "2005-09-20 18:00:00",
+      "wind_start": 85.0,
+      "wind_end": 145.0,
+      "delta_kt": 60.0
+    },
+    {
+      "NAME": "IDA",
+      "SEASON": 2021,
+      "start_time": "2021-08-28 12:00:00",
+      "wind_start": 70.0,
+      "wind_end": 130.0,
+      "delta_kt": 60.0
+    },
+    {
+      "NAME": "BRET",
+      "SEASON": 1999,
+      "start_time": "1999-08-21 00:00:00",
+      "wind_start": 65.0,
+      "wind_end": 120.0,
+      "delta_kt": 55.0
+    },
+    {
+      "NAME": "HUMBERTO",
+      "SEASON": 2007,
+      "start_time": "2007-09-12 06:00:00",
+      "wind_start": 25.0,
+      "wind_end": 80.0,
+      "delta_kt": 55.0
+    },
+    {
+      "NAME": "KARL",
+      "SEASON": 2010,
+      "start_time": "2010-09-16 12:00:00",
+      "wind_start": 55.0,
+      "wind_end": 110.0,
+      "delta_kt": 55.0
+    },
+    {
+      "NAME": "LAURA",
+      "SEASON": 2020,
+      "start_time": "2020-08-26 00:00:00",
+      "wind_start": 75.0,
+      "wind_end": 130.0,
+      "delta_kt": 55.0
+    },
+    {
+      "NAME": "ALBERTO",
+      "SEASON": 1982,
+      "start_time": "1982-06-02 18:00:00",
+      "wind_start": 25.0,
+      "wind_end": 75.0,
+      "delta_kt": 50.0
+    },
+    {
+      "NAME": "GILBERT",
+      "SEASON": 1988,
+      "start_time": "1988-09-13 00:00:00",
+      "wind_start": 110.0,
+      "wind_end": 160.0,
+      "delta_kt": 50.0
+    }
+  ],
+  "validation_storms": [
+    {
+      "name": "Katrina",
+      "year": 2005,
+      "peak_wind_kt": 150.0,
+      "min_pres_mb": 902.0,
+      "n_ri_windows": 8,
+      "first_obs": "2005-08-23 18:00:00",
+      "last_obs": "2005-08-31 06:00:00",
+      "n_landfalls": 21
+    },
+    {
+      "name": "Rita",
+      "year": 2005,
+      "peak_wind_kt": 155.0,
+      "min_pres_mb": 895.0,
+      "n_ri_windows": 13,
+      "first_obs": "2005-09-18 00:00:00",
+      "last_obs": "2005-09-26 06:00:00",
+      "n_landfalls": 16
+    },
+    {
+      "name": "Harvey",
+      "year": 2017,
+      "peak_wind_kt": 115.0,
+      "min_pres_mb": 937.0,
+      "n_ri_windows": 14,
+      "first_obs": "2017-08-16 06:00:00",
+      "last_obs": "2017-09-02 12:00:00",
+      "n_landfalls": 54
+    },
+    {
+      "name": "Ida",
+      "year": 2021,
+      "peak_wind_kt": 130.0,
+      "min_pres_mb": 929.0,
+      "n_ri_windows": 11,
+      "first_obs": "2021-08-26 12:00:00",
+      "last_obs": "2021-09-04 18:00:00",
+      "n_landfalls": 38
+    },
+    {
+      "name": "Michael",
+      "year": 2018,
+      "peak_wind_kt": 140.0,
+      "min_pres_mb": 919.0,
+      "n_ri_windows": 14,
+      "first_obs": "2018-10-06 18:00:00",
+      "last_obs": "2018-10-15 18:00:00",
+      "n_landfalls": 14
+    }
+  ]
+}
