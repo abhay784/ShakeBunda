@@ -1,0 +1,11 @@
+torch>=2.0
+numpy
+pandas
+scipy
+fastapi
+uvicorn[standard]
+pydantic>=2
+# preprocess_local.py only — not needed at server runtime
+xarray
+netCDF4
+cftime

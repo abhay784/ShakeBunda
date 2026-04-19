@@ -11,3 +11,4 @@ __marimo__/
 __pycache__/
 *.pyc
 __marimo__/
+artifacts/

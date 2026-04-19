@@ -22,10 +22,11 @@ interface GulfMapProps {
   showGrid: boolean;
   onEddyCount?: (n: number) => void;
   mode: string;
-  riGrid?: number[][] | null;
+  /** Optional 2D risk grid from the predict API. Rows = north→south, cols = west→east. Values [0,1]. */
+  riskOverlay?: number[][] | null;
 }
 
-export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCount, mode }: GulfMapProps) {
+export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCount, mode, riskOverlay }: GulfMapProps) {
   const heatRef = useRef<HTMLCanvasElement>(null);
   const particleRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -95,6 +96,51 @@ export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCou
           ctx.fillStyle = `rgba(255, 60, 110, ${0.08 + (v - 0.75) * 0.4})`;
           ctx.fillRect(x - cellW * 0.5, y - cellH * 0.5, cellW * 1.5, cellH * 1.5);
         }
+      }
+      ctx.restore();
+    }
+
+    // API-driven RI risk overlay (YlOrRd, semi-transparent). Only painted
+    // when the prediction layer is on AND the API has returned a grid.
+    if (layers.predictions && riskOverlay && riskOverlay.length > 0) {
+      ctx.save();
+      const rRows = riskOverlay.length;
+      const rCols = riskOverlay[0]?.length ?? 0;
+      if (rCols > 0) {
+        const off = document.createElement('canvas');
+        off.width = rCols; off.height = rRows;
+        const octx = off.getContext('2d')!;
+        const img = octx.createImageData(rCols, rRows);
+        for (let j = 0; j < rRows; j++) {
+          for (let i = 0; i < rCols; i++) {
+            const v = Math.max(0, Math.min(1, riskOverlay[j][i] ?? 0));
+            // YlOrRd-ish ramp: yellow → orange → red, alpha grows with risk
+            const r = 255;
+            const g = Math.round(255 * (1 - v * 0.85));
+            const b = Math.round(80 * (1 - v));
+            const a = Math.round(220 * v);
+            const p = (j * rCols + i) * 4;
+            img.data[p] = r;
+            img.data[p + 1] = g;
+            img.data[p + 2] = b;
+            img.data[p + 3] = a;
+          }
+        }
+        octx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.globalAlpha = 0.55;
+        ctx.drawImage(off, 0, 0, w, h);
+        ctx.globalAlpha = 1;
+
+        // Label badge in the corner so judges know it's the model output
+        ctx.fillStyle = 'rgba(20, 8, 18, 0.78)';
+        ctx.fillRect(w - 168, h - 36, 158, 24);
+        ctx.strokeStyle = 'rgba(255, 140, 60, 0.6)';
+        ctx.strokeRect(w - 168, h - 36, 158, 24);
+        ctx.fillStyle = '#ffb86b';
+        ctx.font = '500 10px JetBrains Mono';
+        ctx.fillText('MODEL · RI PROBABILITY', w - 160, h - 20);
       }
       ctx.restore();
     }
@@ -217,7 +263,7 @@ export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCou
       lons.forEach((s, i) => ctx.fillText(s, (i / 3) * (w * 0.95) + 12, 12));
       ctx.restore();
     }
-  }, [grid, eddies, layers, t, showGrid]);
+  }, [grid, eddies, layers, t, showGrid, riskOverlay]);
 
   // Particle system
   useEffect(() => {

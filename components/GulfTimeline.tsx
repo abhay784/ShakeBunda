@@ -14,6 +14,20 @@ export const EVENTS = [
   { t: (2024.6 - 1985) / 40, label: 'MILTON', year: 2024, cat: 'Cat 5', note: 'record SSH +34 cm near Yucatán' },
 ];
 
+// stub — replace with endpoint response field when Databricks LCE-separation inference is live
+const LCE_SEPARATIONS = [
+  { year: 1988, t: (1988.6 - 1985) / 40 },
+  { year: 1993, t: (1993.3 - 1985) / 40 },
+  { year: 1998, t: (1998.8 - 1985) / 40 },
+  { year: 2004, t: (2004.4 - 1985) / 40 },
+  { year: 2005, t: (2005.2 - 1985) / 40 },
+  { year: 2010, t: (2010.5 - 1985) / 40 },
+  { year: 2014, t: (2014.1 - 1985) / 40 },
+  { year: 2017, t: (2017.7 - 1985) / 40 },
+  { year: 2021, t: (2021.3 - 1985) / 40 },
+  { year: 2024, t: (2024.0 - 1985) / 40 },
+];
+
 const EVENT_ROWS = (() => {
   const sorted = [...EVENTS].sort((a, b) => a.t - b.t);
   const rows = new Map<string, number>();
@@ -62,6 +76,15 @@ export function Timeline({ t, setT, playing }: TimelineProps) {
             <button key={e.label} className="gw-tl-jump" onClick={() => setT(e.t)}>
               {e.year} <b>{e.label}</b>
             </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="gw-tl-separation-track">
+        <span className="gw-tl-separation-label">Eddy separation events</span>
+        <div className="gw-tl-separation-rail">
+          {LCE_SEPARATIONS.map(s => (
+            <i key={s.year + '-' + s.t.toFixed(4)} style={{ left: `${s.t * 100}%` }} title={`LCE separation · ${s.year}`} />
           ))}
         </div>
       </div>
