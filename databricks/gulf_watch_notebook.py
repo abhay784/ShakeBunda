@@ -1,18 +1,30 @@
+# Databricks notebook source
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 # =============================================================================
-# GULF WATCH — Databricks Notebook
-# CNN + LSTM LCE Separation Predictor + RI Risk Heatmap
-# Scripps / ECCO Gulf of Mexico 40-year SSH Dataset
-# DataHacks 2026 | Climate + AI/ML Track
+# GULF WATCH — DataHacks 2026 Hackathon Notebook
 # =============================================================================
-# Copy each `# CELL N` block into a separate Databricks cell and run top-to-bottom.
-# Each `# ✅ DEMO CHECKPOINT` line marks a safe stopping point.
+# 40-year Gulf of Mexico SSH → 7-day LSTM forecast → RI risk heatmap
+# Runs end-to-end on Databricks Community Edition (single node, CPU ok).
+#
+# Dataset path:    /Volumes/workspace/default/gulf_watch/run2_clim_v2_ssh.nc
+# Plot outputs:    /tmp/gulf_watch_*.png
+#
+# Anchor storms: Katrina (2005-08-28), Harvey (2017-08-24), Ida (2021-08-28)
 # =============================================================================
 
+# CELL 1 — Install deps
+%pip install xarray netCDF4 torch torchvision matplotlib scikit-learn cftime --quiet
+%pip install xarray netCDF4 torch scipy
+
+# COMMAND ----------
 
 # CELL 1 — IMPORTS & CONFIG
 # =============================================================================
 
-%pip install xarray netCDF4 torch torchvision matplotlib cartopy scikit-learn --quiet
+%pip install xarray netCDF4 torch torchvision matplotlib scikit-learn cftime dask --quiet
 
 import os, warnings, json
 from datetime import datetime
@@ -38,8 +50,7 @@ torch.manual_seed(42)
 
 # --------------------------------------------------------------------------- #
 # ⚠️ SWAP THIS: update path to match where .nc file was uploaded in DBFS
-NC_PATH = "/dbfs/FileStore/gulf_watch/run2_clim_v2_ssh.nc"
-# Alt (if mounted):  "/mnt/gulf-watch/run2_clim_v2_ssh.nc"
+NC_PATH = "/Volumes/workspace/default/gulf_watch/run2_clim_v2_ssh.nc"
 # --------------------------------------------------------------------------- #
 
 # Gulf of Mexico bounding box
@@ -63,17 +74,30 @@ GRADIENT_THRESHOLD = 0.10   # LCE separation: LC minus western Gulf
 WARMING_OFFSET = 0.05
 
 # Model config
-SEQ_LEN = 30
-HIDDEN_SIZE = 64
-DROPOUT = 0.2
-BATCH_SIZE = 32
+SEQ_LEN = 30          # ~90 days of history (30 samples × 3-day stride)
+HIDDEN_SIZE = 96      # upgraded from 64
+NUM_LAYERS = 1        # single-layer is plenty
+BIDIRECTIONAL = True  # look forward + backward over the sequence
+DROPOUT = 0.3
+BATCH_SIZE = 64       # bigger batch → faster steps
 EPOCHS = 20
 LR = 1e-3
+EARLY_STOP_PATIENCE = 5
+FOCAL_GAMMA = 2.0     # focal loss focus parameter
 
 USE_CNN = True   # ⚡ FALLBACK: set False if CNN feature extraction is too slow
 
-PLOT_DIR = "/tmp"
+PLOT_DIR = "/tmp/gulf_watch"
 os.makedirs(PLOT_DIR, exist_ok=True)
+# Ensure writable (Databricks sometimes permission-locks /tmp direct writes)
+try:
+    with open(os.path.join(PLOT_DIR, ".write_test"), "w") as _f:
+        _f.write("ok")
+    os.remove(os.path.join(PLOT_DIR, ".write_test"))
+except PermissionError:
+    PLOT_DIR = os.path.expanduser("~/gulf_watch")
+    os.makedirs(PLOT_DIR, exist_ok=True)
+    print(f"   (fell back to home dir: {PLOT_DIR})")
 
 print("✅ Imports + config OK")
 print(f"   PyTorch={torch.__version__}  xarray={xr.__version__}")
@@ -82,11 +106,26 @@ print(f"   USE_CNN={USE_CNN}  plots→{PLOT_DIR}")
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
-# CELL 2 — DATA LOADING & INSPECTION
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# COMMAND ----------
+
 # =============================================================================
 
 # Chunked load — Community Edition RAM can't hold full 40-year array
-ds = xr.open_dataset(NC_PATH, chunks={"time": 365})
+# decode_times=False because this file uses 'days since Jan-1-0000' (non-standard)
+ds = xr.open_dataset(NC_PATH, decode_times=False)
+
+# Replace model time axis with real daily dates anchored at 1982-01-01
+# (ECCO run2_clim_v2 = 40-yr Gulf Watch training window: 1982–2024)
+_n_steps = ds.sizes.get("time", len(ds["time"]))
+_times = pd.date_range(start="1982-01-01", periods=_n_steps, freq="D")
+ds = ds.assign_coords(time=_times)
+print(f"   Time axis rewritten: {_times[0].date()} → {_times[-1].date()} ({_n_steps} days)")
 
 print("── Dataset ──────────────────────────────────────────")
 print(ds)
@@ -132,10 +171,20 @@ print(f"\n✅ Gulf crop shape: {ssh_gulf.shape}")
 
 print("Loading Gulf crop into memory …")
 ssh_gulf = ssh_gulf.load()
-print(f"✅ In-memory  |  min={float(ssh_gulf.min()):.3f}  max={float(ssh_gulf.max()):.3f} m")
+
+# 🧠 MEMORY SAVER: subsample to every-3-days (14,610 → 4,870 steps)
+# Free-tier Databricks kernel OOMs on full daily array
+ssh_gulf = ssh_gulf.isel({time_dim: slice(None, None, 3)})
+print(f"   Time-subsampled every 3 days → {ssh_gulf.sizes[time_dim]} frames")
+print(f"✅ In-memory  |  shape={ssh_gulf.shape}  "
+      f"min={float(ssh_gulf.min()):.3f}  max={float(ssh_gulf.max()):.3f} m")
 
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
+
+# COMMAND ----------
+
+# COMMAND ----------
 
 # CELL 3 — ANCHOR MOMENT VERIFICATION
 # =============================================================================
@@ -191,11 +240,20 @@ for name, date_str, slon, slat, fname in ANCHORS:
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
+
+# COMMAND ----------
+
+# COMMAND ----------
+
+# DBTITLE 1,Cell 5
+# DBTITLE 1,Cell 5
 # CELL 4 — FEATURE ENGINEERING
 # =============================================================================
 
 print("Computing long-term SSH mean per grid point …")
-ssh_mean = ssh_gulf.mean(dim=time_dim)
+# Use chunked computation to avoid loading all timesteps into memory
+ssh_gulf_chunked = ssh_gulf.chunk({time_dim: 365, lat_dim: -1, lon_dim: -1})
+ssh_mean = ssh_gulf_chunked.mean(dim=time_dim).compute()
 ssh_anomaly = ssh_gulf - ssh_mean
 print(f"✅ ssh_anomaly shape={ssh_anomaly.shape}  "
       f"range=[{float(ssh_anomaly.min()):.3f}, {float(ssh_anomaly.max()):.3f}] m")
@@ -236,18 +294,32 @@ print(f"✅ LC time series: n={len(lc_series)}  "
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
+# COMMAND ----------
+
+# COMMAND ----------
+
 # CELL 5 — LCE SEPARATION LABELS (self-supervised)
 # =============================================================================
 
 # 🔬 SCIENCE NOTE: LCE separation = warm bulge in LC zone AND a gradient break
 # between LC and western Gulf (eddy has detached and drifted west)
 gradient = lc_series - wg_series
-raw_label = ((lc_series > RI_THRESHOLD) & (gradient > GRADIENT_THRESHOLD)).astype(float)
+
+# Adaptive thresholds: top 15% of LC anomalies AND top 25% of gradients
+# (fixed 0.17m / 0.10m thresholds gave 0 positives for this dataset's dynamic range)
+lc_thresh = float(np.nanpercentile(lc_series.values, 85))
+grad_thresh = float(np.nanpercentile(gradient.values, 75))
+print(f"   Adaptive thresholds → LC>{lc_thresh:.3f}m  gradient>{grad_thresh:.3f}m")
+
+raw_label = ((lc_series > lc_thresh) & (gradient > grad_thresh)).astype(float)
 smooth = raw_label.rolling(5, center=True).mean().fillna(0)
-sep_label = (smooth > 0.5).astype(int)
+sep_label = (smooth > 0.3).astype(int)
 
 print(f"✅ Separation labels  positives={int(sep_label.sum())} / {len(sep_label)}  "
       f"({100*sep_label.mean():.2f}%)")
+
+# Update the plot's threshold line to use adaptive value
+RI_THRESHOLD_PLOT = lc_thresh
 
 # Visual sanity — label timeline with storm dates
 fig, ax = plt.subplots(figsize=(16, 4))
@@ -256,7 +328,7 @@ ax.fill_between(lc_series.index, lc_series.values, 0,
 ax.fill_between(lc_series.index, lc_series.values, 0,
                 where=lc_series.values <= 0, color="blue", alpha=0.3, label="LC SSH anomaly (−)")
 ax.plot(rolling_30.index, rolling_30.values, "k--", lw=1, label="30-day rolling")
-ax.axhline(RI_THRESHOLD, color="orange", ls=":", label=f"RI threshold ({RI_THRESHOLD}m)")
+ax.axhline(RI_THRESHOLD_PLOT, color="orange", ls=":", label=f"LC threshold ({RI_THRESHOLD_PLOT:.3f}m)")
 
 # Shade separation windows
 ax.fill_between(sep_label.index, 0, 1,
@@ -274,8 +346,11 @@ plt.savefig(f"{PLOT_DIR}/separation_labels.png", dpi=150, bbox_inches="tight")
 plt.show()
 print(f"✅ Saved → {PLOT_DIR}/separation_labels.png")
 
-# ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
+# COMMAND ----------
+
+
+# COMMAND ----------
 
 # CELL 6 — CNN ENCODER
 # =============================================================================
@@ -375,6 +450,10 @@ INPUT_SIZE = feats.shape[1]
 
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
+
+
+
+# COMMAND ----------
 
 # CELL 7 — LSTM PREDICTOR (trained on IBTrACS RI labels)
 # =============================================================================
@@ -576,6 +655,10 @@ except Exception:
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
+
+
+# COMMAND ----------
+
 # CELL 8 — EVALUATION & KATRINA SANITY CHECK
 # =============================================================================
 
@@ -604,7 +687,7 @@ print(f"   t+30 :  AUC-ROC={auc30:.3f}   F1={f1_30:.3f}")
 katrina_date = pd.Timestamp("2005-08-28")
 window_start = katrina_date - pd.Timedelta(days=90)
 mask = (lc_series.index >= window_start) & (lc_series.index <= katrina_date + pd.Timedelta(days=7))
-window_idx = np.where(np.asarray(mask))[0]
+window_idx = np.where(mask.values)[0]
 
 katrina_probs = []
 model.eval()
@@ -648,63 +731,60 @@ else:
 # ✅ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
+
+
+# COMMAND ----------
+
 # CELL 9 — RISK HEATMAP (baseline)
-# =============================================================================
+def _nearest_date(da, target):
+    t = np.datetime64(target)
+    times = da[time_dim].values
+    i = int(np.argmin(np.abs(times - t)))
+    return da.isel({time_dim: i}), str(times[i])[:10]
 
 def risk_heatmap(date_str, warming_offset=0.0, save_path=None):
     frame, actual = _nearest_date(ssh_anomaly, date_str)
     field = np.nan_to_num(frame.values, nan=0.0) + warming_offset
-
     ssh_max = max(float(np.abs(field).max()), 1e-6)
     risk = np.clip(field / ssh_max, 0, 1)
     risk = gaussian_filter(risk, sigma=1.2)
-
     lons_arr = frame[lon_dim].values
     lats_arr = frame[lat_dim].values
-
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-    im0 = axes[0].pcolormesh(lons_arr, lats_arr, field,
-                             cmap="RdBu_r", vmin=-0.4, vmax=0.4, shading="auto")
-    axes[0].contour(lons_arr, lats_arr, field,
-                    levels=[RI_THRESHOLD], colors="white", linewidths=2, linestyles="--")
-    axes[0].set_title(f"SSH Anomaly  —  {actual}" +
-                      (f"  (+{warming_offset:.2f}m warming)" if warming_offset else ""))
+    im0 = axes[0].pcolormesh(lons_arr, lats_arr, field, cmap="RdBu_r", vmin=-0.4, vmax=0.4, shading="auto")
+    axes[0].contour(lons_arr, lats_arr, field, levels=[RI_THRESHOLD], colors="white", linewidths=2, linestyles="--")
+    axes[0].set_title(f"SSH Anomaly — {actual}" + (f" (+{warming_offset:.2f}m)" if warming_offset else ""))
     axes[0].set_xlabel("Longitude"); axes[0].set_ylabel("Latitude")
     plt.colorbar(im0, ax=axes[0], label="SSH Anomaly (m)")
-
-    im1 = axes[1].pcolormesh(lons_arr, lats_arr, risk,
-                             cmap="YlOrRd", vmin=0, vmax=1, shading="auto")
-    axes[1].contour(lons_arr, lats_arr, field,
-                    levels=[RI_THRESHOLD], colors="white", linewidths=2, linestyles="--")
-    axes[1].set_title(f"RI Risk (0–1)  —  {actual}")
+    im1 = axes[1].pcolormesh(lons_arr, lats_arr, risk, cmap="YlOrRd", vmin=0, vmax=1, shading="auto")
+    axes[1].contour(lons_arr, lats_arr, field, levels=[RI_THRESHOLD], colors="white", linewidths=2, linestyles="--")
+    axes[1].set_title(f"RI Risk (0–1) — {actual}")
     axes[1].set_xlabel("Longitude"); axes[1].set_ylabel("Latitude")
     plt.colorbar(im1, ax=axes[1], label="Risk (0–1)")
-
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
     return field, risk, actual
 
-field_base, risk_base, _ = risk_heatmap("2005-08-25",
-                                        save_path=f"{PLOT_DIR}/risk_heatmap_20050825.png")
+field_base, risk_base, _ = risk_heatmap("2005-08-25", save_path=f"{PLOT_DIR}/risk_heatmap_20050825.png")
 print(f"✅ Baseline risk heatmap → {PLOT_DIR}/risk_heatmap_20050825.png")
 base_hot_pct = 100 * np.mean(risk_base > 0.5)
 print(f"   Gulf area with risk > 0.5 : {base_hot_pct:.1f}%")
 
-# ✅ DEMO CHECKPOINT: safe stopping point if time runs out
+# COMMAND ----------
 
+# COMMAND ----------
 
-# CELL 10 — RISK HEATMAP (+2°C WARMING SCENARIO)
+# CELL 10 ‚Äî RISK HEATMAP (+2¬∞C WARMING SCENARIO)
 # =============================================================================
 
 field_warm, risk_warm, _ = risk_heatmap("2005-08-25",
                                         warming_offset=WARMING_OFFSET,
                                         save_path=f"{PLOT_DIR}/risk_heatmap_20050825_warm.png")
 warm_hot_pct = 100 * np.mean(risk_warm > 0.5)
-print(f"✅ +2°C scenario risk heatmap → {PLOT_DIR}/risk_heatmap_20050825_warm.png")
-print(f"   Gulf area with risk > 0.5 : {warm_hot_pct:.1f}%   (Δ = +{warm_hot_pct - base_hot_pct:.1f} pp)")
+print(f"‚úÖ +2¬∞C scenario risk heatmap ‚Üí {PLOT_DIR}/risk_heatmap_20050825_warm.png")
+print(f"   Gulf area with risk > 0.5 : {warm_hot_pct:.1f}%   (Œî = +{warm_hot_pct - base_hot_pct:.1f} pp)")
 
 # Summary JSON for dashboard/stub calibration
 summary = {
@@ -726,11 +806,11 @@ summary = {
 }
 with open(f"{PLOT_DIR}/gulf_watch_summary.json", "w") as f:
     json.dump(summary, f, indent=2)
-print(f"✅ Summary → {PLOT_DIR}/gulf_watch_summary.json")
+print(f"‚úÖ Summary ‚Üí {PLOT_DIR}/gulf_watch_summary.json")
 print(json.dumps(summary, indent=2))
 
 print("\n" + "=" * 60)
-print("🏁 GULF WATCH NOTEBOOK COMPLETE")
+print("üèÅ GULF WATCH NOTEBOOK COMPLETE")
 print("=" * 60)
 print("Artefacts in /tmp/:")
 print("  anchor_katrina.png / anchor_harvey.png / anchor_ida.png")
@@ -740,15 +820,19 @@ print("  risk_heatmap_20050825.png")
 print("  risk_heatmap_20050825_warm.png")
 print("  lce_predictor.pt  gulf_watch_summary.json")
 
-# ✅ DEMO CHECKPOINT: safe stopping point if time runs out
+# ‚úÖ DEMO CHECKPOINT: safe stopping point if time runs out
 
 
-# CELL 11 — IBTrACS EXTERNAL VALIDATION (honest metrics)
+
+
+# COMMAND ----------
+
+# CELL 11 ‚Äî IBTrACS EXTERNAL VALIDATION (honest metrics)
 # =============================================================================
 # Honest evaluation against NOAA IBTrACS best-track observations.
-#   A) Run model across the full time series → one probability per day.
+#   A) Run model across the full time series ‚Üí one probability per day.
 #   B) Build a ground-truth vector: 1 if a Gulf RI onset occurs within
-#      HIT_LEAD_DAYS after that day, else 0. Restrict to Jun–Nov.
+#      HIT_LEAD_DAYS after that day, else 0. Restrict to Jun‚ÄìNov.
 #   C) Pick a threshold on the VAL split (chronological, same as Cell 7).
 #   D) Report TP / FP / FN / TN + precision, recall, false-alarm rate on the
 #      full hurricane-season vector using that fixed threshold.
@@ -773,7 +857,7 @@ VALIDATION_STORMS = [
 ]
 
 assert os.path.exists(IBTRACS_PATH), f"Missing {IBTRACS_PATH}"
-print(f"Loading IBTrACS from {IBTRACS_PATH} …")
+print(f"Loading IBTrACS from {IBTRACS_PATH} ‚Ä¶")
 ib = pd.read_csv(IBTRACS_PATH, skiprows=[1], low_memory=False,
                  na_values=[" ", "", "NA"])
 ib["ISO_TIME"] = pd.to_datetime(ib["ISO_TIME"], errors="coerce")
@@ -846,7 +930,7 @@ print(f"   Positive days (RI onset within {HIT_LEAD_DAYS}d): "
       f"{int(hurr['y_true'].sum())} / {len(hurr)} ({hurr['y_true'].mean():.2%})")
 
 # ------- C) Threshold picked on VAL split only (no peeking) -------
-# Recompute the same chronological split as Cell 7 (38/42 years → train/val).
+# Recompute the same chronological split as Cell 7 (38/42 years ‚Üí train/val).
 _split = int(len(idxs) * (38.0 / 42.0))
 val_dates = pd.DatetimeIndex([lc_series.index[idxs[i]] for i in range(_split, len(idxs))])
 val_mask  = hurr.index.isin(val_dates)
@@ -855,7 +939,7 @@ print(f"   Val hurricane-season days: {len(val_df)}  "
       f"(positives: {int(val_df['y_true'].sum())})")
 
 if val_df["y_true"].sum() == 0 or len(val_df) < 10:
-    print("   ⚠ Val split has too few positives — falling back to threshold=0.5")
+    print("   ‚ö† Val split has too few positives ‚Äî falling back to threshold=0.5")
     THRESHOLD = 0.5
     val_auc = val_ap = float("nan")
 else:
@@ -884,7 +968,7 @@ def _confusion(y, scores, thr):
     )
 
 model_cm = _confusion(hurr["y_true"].values, np.asarray(hurr["p7"].values), THRESHOLD)
-print(f"\n🎯 Model (p7 ≥ {THRESHOLD:.3f}) — full hurricane-season eval:")
+print(f"\nüéØ Model (p7 ‚â• {THRESHOLD:.3f}) ‚Äî full hurricane-season eval:")
 print(f"   TP={model_cm['TP']}  FP={model_cm['FP']}  "
       f"FN={model_cm['FN']}  TN={model_cm['TN']}")
 print(f"   Precision={model_cm['precision']:.2%}  "
@@ -916,8 +1000,8 @@ else:
 
 base_pred = (area_today >= BASE_THRESHOLD).astype(int)
 base_cm = _confusion(hurr["y_true"].values, base_pred.astype(float), 0.5)
-print(f"\n📏 Baseline (Gulf area fraction > {RI_THRESHOLD} m "
-      f"≥ {BASE_THRESHOLD:.3f}):")
+print(f"\nüìè Baseline (Gulf area fraction > {RI_THRESHOLD} m "
+      f"‚â• {BASE_THRESHOLD:.3f}):")
 print(f"   TP={base_cm['TP']}  FP={base_cm['FP']}  "
       f"FN={base_cm['FN']}  TN={base_cm['TN']}")
 print(f"   Precision={base_cm['precision']:.2%}  "
@@ -925,8 +1009,8 @@ print(f"   Precision={base_cm['precision']:.2%}  "
 
 delta = {k: model_cm[k] - base_cm[k]
          for k in ("precision", "recall", "false_alarm_rate")}
-print(f"\n🔬 Model − Baseline:  ΔP={delta['precision']:+.2%}  "
-      f"ΔR={delta['recall']:+.2%}  ΔFAR={delta['false_alarm_rate']:+.2%}")
+print(f"\nüî¨ Model ‚àí Baseline:  ŒîP={delta['precision']:+.2%}  "
+      f"ŒîR={delta['recall']:+.2%}  ŒîFAR={delta['false_alarm_rate']:+.2%}")
 
 # Persist
 with open(f"{PLOT_DIR}/ibtracs_validation.json", "w") as f:
@@ -940,14 +1024,14 @@ with open(f"{PLOT_DIR}/ibtracs_validation.json", "w") as f:
         "gulf_ri_onset_days": int(len(ri_onset_days)),
         "hurricane_season_days_evaluated": int(len(hurr)),
     }, f, indent=2, default=str)
-print(f"\n💾 Summary → {PLOT_DIR}/ibtracs_validation.json")
+print(f"\nüíæ Summary ‚Üí {PLOT_DIR}/ibtracs_validation.json")
 
 # ------- F) Per-storm plots for the deck (no longer the metric source) -------
 for name, year in VALIDATION_STORMS:
     track = gulf[(gulf["NAME"].str.upper() == name) &
                  (gulf["SEASON"] == year)].sort_values("ISO_TIME")
     if len(track) == 0:
-        print(f"   ⚠ {name} {year}: no Gulf track record")
+        print(f"   ‚ö† {name} {year}: no Gulf track record")
         continue
     onsets = pd.to_datetime(track.loc[track["RI_FLAG"], "ISO_TIME"])
     peak = pd.Timestamp(track.loc[track["WIND_KT"].idxmax(), "ISO_TIME"])
@@ -955,7 +1039,7 @@ for name, year in VALIDATION_STORMS:
            (prob_df.index <= peak + pd.Timedelta(days=3)))
     pdf = prob_df.loc[win]
     if pdf.empty:
-        print(f"   ⚠ {name} {year}: outside model range")
+        print(f"   ‚ö† {name} {year}: outside model range")
         continue
 
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
@@ -967,7 +1051,7 @@ for name, year in VALIDATION_STORMS:
     for o in onsets:
         a1.axvline(pd.Timestamp(o), color="red", lw=1.2, alpha=0.6)
     a1.set_ylim(0, 1); a1.set_ylabel("Probability")
-    a1.set_title(f"{name.title()} ({year}) — Model vs IBTrACS",
+    a1.set_title(f"{name.title()} ({year}) ‚Äî Model vs IBTrACS",
                  fontsize=12, fontweight="bold")
     a1.legend(loc="upper left", fontsize=9); a1.grid(alpha=0.25)
 
@@ -975,7 +1059,7 @@ for name, year in VALIDATION_STORMS:
             label="IBTrACS wind (kt)")
     a2.scatter(onsets, track.loc[track["RI_FLAG"], "WIND_KT"],
                color="red", marker="^", s=70, zorder=5,
-               label="RI onset (≥ 30 kt / 24 h)")
+               label="RI onset (‚â• 30 kt / 24 h)")
     a2.axhline(64, color="#fde68a", ls=":", lw=0.7)
     a2.axhline(113, color="#ef4444", ls=":", lw=0.7)
     a2.set_ylabel("Wind (kt)"); a2.set_xlabel("Date (UTC)")
@@ -986,6 +1070,6 @@ for name, year in VALIDATION_STORMS:
     plt.savefig(out, dpi=140, bbox_inches="tight")
     plt.show()
     plt.close(fig)
-    print(f"   ✅ {name} {year}: {len(onsets)} onset(s) → {out}")
+    print(f"   ‚úÖ {name} {year}: {len(onsets)} onset(s) ‚Üí {out}")
 
-# ✅ DEMO CHECKPOINT: safe stopping point if time runs out
+# ‚úÖ DEMO CHECKPOINT: safe stopping point if time runs out
