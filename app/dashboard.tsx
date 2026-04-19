@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GulfMap } from '@/components/GulfMap';
 import { LeftPanel, RightPanel } from '@/components/GulfPanels';
 import { predictRI } from '@/lib/databricks/client';
+import type { Eddy } from '@/lib/ocean/ssh';
+import type { PredictResponse } from '@/lib/databricks/types';
 import './globals.css';
 
 interface RiskRegion {
@@ -39,6 +41,8 @@ export default function Dashboard() {
   const [glow, setGlow] = useState(1.0);
   const [riGrid, setRiGrid] = useState<number[][] | undefined>();
   const [loading, setLoading] = useState(false);
+  const [eddies, setEddies] = useState<Eddy[]>([]);
+  const [prediction, setPrediction] = useState<PredictResponse | null>(null);
 
   // Persist time
   useEffect(() => {
@@ -63,14 +67,11 @@ export default function Dashboard() {
     return () => cancelAnimationFrame(raf);
   }, [playing, speed]);
 
-  // Fetch RI predictions when mode or anomaly changes
+  // Fetch RI predictions. We always fetch (both modes) so the Ocean Risk
+  // Engine gauge has live data; only the heatmap override is mode-gated.
   useEffect(() => {
+    let cancelled = false;
     const fetchPredictions = async () => {
-      if (mode !== 'predicted') {
-        setRiGrid(undefined);
-        return;
-      }
-
       setLoading(true);
       try {
         const result = await predictRI({
@@ -78,18 +79,22 @@ export default function Dashboard() {
           sst_delta: anomaly,
           loop_depth: 0.5,
         });
-        // Convert response to 2D grid
-        if (result.ri_probability && result.ri_probability.length > 0) {
+        if (cancelled) return;
+        setPrediction(result);
+        if (mode === 'predicted' && result.ri_probability?.length > 0) {
           setRiGrid(result.ri_probability);
+        } else {
+          setRiGrid(undefined);
         }
       } catch (err) {
         console.error('Failed to fetch RI predictions:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchPredictions();
+    return () => { cancelled = true; };
   }, [mode, anomaly]);
 
   const accentHex = '#4dd6ff';
@@ -142,6 +147,7 @@ export default function Dashboard() {
             glow={glow}
             showGrid={showGrid}
             onEddyCount={setEddyCount}
+            onEddiesChange={setEddies}
             mode={mode}
             riGrid={riGrid}
           />
@@ -173,7 +179,14 @@ export default function Dashboard() {
         </div>
       </main>
 
-      <RightPanel t={t} anomaly={anomaly} eddies={[]} mode={mode} onFly={handleFlyTo} />
+      <RightPanel
+        t={t}
+        anomaly={anomaly}
+        eddies={eddies}
+        prediction={prediction}
+        mode={mode}
+        onFly={handleFlyTo}
+      />
     </div>
   );
 }

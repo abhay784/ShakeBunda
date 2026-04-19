@@ -203,7 +203,7 @@ export interface Eddy {
   strength: number;
 }
 
-export function detectEddies(grid: Float32Array, thresh = 0.55): Eddy[] {
+export function detectEddies(grid: Float32Array, thresh = 0.68): Eddy[] {
   const out: Eddy[] = [];
   const seen = new Uint8Array(COLS * ROWS);
 
@@ -259,5 +259,5 @@ export function detectEddies(grid: Float32Array, thresh = 0.55): Eddy[] {
     }
   }
 
-  return out.sort((a, b) => b.strength - a.strength).slice(0, 8);
+  return out.sort((a, b) => b.strength - a.strength);
 }

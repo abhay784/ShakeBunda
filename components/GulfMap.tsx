@@ -26,6 +26,7 @@ interface GulfMapProps {
   glow: number; // glow strength 0..1.5
   showGrid: boolean;
   onEddyCount?: (count: number) => void;
+  onEddiesChange?: (eddies: Eddy[]) => void;
   mode: 'historical' | 'predicted';
   riGrid?: number[][]; // from Databricks API; overrides synthetic grid if present
 }
@@ -38,6 +39,7 @@ export function GulfMap({
   glow,
   showGrid,
   onEddyCount,
+  onEddiesChange,
   mode,
   riGrid,
 }: GulfMapProps) {
@@ -71,8 +73,10 @@ export function GulfMap({
   );
 
   useEffect(() => {
-    onEddyCount?.(detectEddies(grid).length);
-  }, [grid, onEddyCount]);
+    const detected = detectEddies(grid);
+    onEddyCount?.(detected.length);
+    onEddiesChange?.(detected);
+  }, [grid, onEddyCount, onEddiesChange]);
 
   // Heatmap rendering
   useEffect(() => {
@@ -417,34 +421,15 @@ export function GulfMap({
       <svg className="gw-coast" viewBox="0 0 960 560" preserveAspectRatio="none">
         <defs>
           <filter id="coastGlow">
-            <feGaussianBlur stdDeviation="0.8" />
+            <feGaussianBlur stdDeviation="0.4" />
           </filter>
         </defs>
-        <path
-          d="M 20,100 Q 220,60 440,90 T 820,110"
-          stroke="rgba(180,220,255,0.35)"
-          strokeWidth="1"
-          fill="none"
-          filter="url(#coastGlow)"
-        />
-        <path
-          d="M 820,110 Q 870,180 870,260 Q 860,320 830,360"
-          stroke="rgba(180,220,255,0.35)"
-          strokeWidth="1"
-          fill="none"
-        />
-        <path
-          d="M 760,440 Q 820,430 880,450"
-          stroke="rgba(180,220,255,0.3)"
-          strokeWidth="1"
-          fill="none"
-        />
-        <path
-          d="M 660,530 Q 640,480 650,440 Q 600,420 520,480 Q 380,520 220,500 Q 80,490 20,460"
-          stroke="rgba(180,220,255,0.35)"
-          strokeWidth="1"
-          fill="none"
-        />
+        <g stroke="rgba(210,235,255,0.92)" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M 20,100 Q 220,60 440,90 T 820,110" filter="url(#coastGlow)" />
+          <path d="M 820,110 Q 870,180 870,260 Q 860,320 830,360" />
+          <path d="M 760,440 Q 820,430 880,450" />
+          <path d="M 660,530 Q 640,480 650,440 Q 600,420 520,480 Q 380,520 220,500 Q 80,490 20,460" />
+        </g>
       </svg>
     </div>
   );

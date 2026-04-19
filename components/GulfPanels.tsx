@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Eddy } from '@/lib/ocean/ssh';
+import type { PredictResponse } from '@/lib/databricks/types';
 
 // Shared UI primitives
 function Panel({
@@ -280,12 +281,14 @@ export function RightPanel({
   t,
   anomaly,
   eddies,
+  prediction,
   mode,
   onFly,
 }: {
   t: number;
   anomaly: number;
   eddies: Eddy[];
+  prediction: PredictResponse | null;
   mode: string;
   onFly?: (r: RiskRegion) => void;
 }) {
@@ -299,20 +302,45 @@ export function RightPanel({
     chatEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chat]);
 
+  // Model-derived climatology boost: ri_days_per_year ≈ 12 baseline → 24 @ +3C.
+  // Rescale to a 0..0.25 additive so it nudges — never dominates — the SSH signal.
+  const modelBoost = useMemo(() => {
+    if (!prediction) return 0;
+    return Math.min(0.25, prediction.ri_days_per_year / 100);
+  }, [prediction]);
+
   const regions = useMemo(() => {
     const cand: RiskRegion[] = eddies
-      .map((e) => ({
-        name: regionName(e.x, e.y),
-        x: e.x,
-        y: e.y,
-        prob: Math.min(0.99, (e.strength - 0.35) * 1.15 + anomaly * 0.08),
-        ssh: (e.strength * 17 + 8).toFixed(1),
-        trend: Math.sin(t * 30 + e.x * 9) > 0 ? '▲' : '▼',
-      }))
+      .map((e) => {
+        // SSH-derived base: strength 0.68 (detection floor) → 0, 1.15 → ~0.7
+        const baseFromSsh = Math.max(0, (e.strength - 0.68) * 1.5);
+        const sstBoost = Math.max(0, anomaly) * 0.06;
+        // Soft saturation via tanh — naturally bounded, never hits 1.0 so no
+        // "everything is 99%" flat-top artefact.
+        const prob = Math.tanh(baseFromSsh + sstBoost + modelBoost);
+        return {
+          name: regionName(e.x, e.y),
+          x: e.x,
+          y: e.y,
+          prob,
+          ssh: (e.strength * 17 + 8).toFixed(1),
+          trend: Math.sin(t * 30 + e.x * 9) > 0 ? '▲' : '▼',
+        };
+      })
       .sort((a, b) => b.prob - a.prob)
       .slice(0, 3);
     return cand;
-  }, [eddies, t, anomaly]);
+  }, [eddies, t, anomaly, modelBoost]);
+
+  // Basin-wide gauge: prefer the model's annualised RI-days metric when
+  // available (12 baseline → 24 @ +3C maps to 0.48 → 0.96). Fall back to the
+  // top region's SSH-derived prob when the API is unreachable.
+  const gaugeProb = useMemo(() => {
+    if (prediction) {
+      return Math.min(0.95, prediction.ri_days_per_year / 25);
+    }
+    return regions[0]?.prob ?? 0;
+  }, [prediction, regions]);
 
   function regionName(x: number, y: number): string {
     if (y > 0.55 && x < 0.45) return 'NW Gulf · Texas shelf';
@@ -359,7 +387,7 @@ export function RightPanel({
               <path d="M 10,55 A 50,50 0 0 1 110,55" stroke="url(#gauge)" strokeWidth="4" fill="none" strokeLinecap="round" />
               <path d="M 10,55 A 50,50 0 0 1 110,55" stroke="rgba(255,255,255,0.06)" strokeWidth="12" fill="none" />
               {(() => {
-                const p = Math.min(1, regions[0]?.prob || 0);
+                const p = Math.min(1, gaugeProb);
                 const a = Math.PI * (1 - p);
                 const nx = 60 + Math.cos(a) * 48;
                 const ny = 55 - Math.sin(a) * 48;
@@ -372,8 +400,12 @@ export function RightPanel({
               })()}
             </svg>
             <div className="gw-gauge-lbl">
-              <b>{(((regions[0]?.prob || 0) * 100) | 0)}%</b>
-              <span>Basin-wide RI probability · next 72h</span>
+              <b>{((gaugeProb * 100) | 0)}%</b>
+              <span>
+                {prediction
+                  ? `${prediction.ri_days_per_year.toFixed(1)} RI-days/yr · ${prediction.source === 'stub' ? 'stub' : 'live'}`
+                  : 'Basin-wide RI probability · next 72h'}
+              </span>
             </div>
           </div>
         </div>

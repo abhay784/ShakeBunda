@@ -522,7 +522,7 @@ body::before {
 .gw-heat { mix-blend-mode: screen; opacity: 0.95; }
 .gw-parts { mix-blend-mode: screen; }
 .gw-overlay { pointer-events: none; }
-.gw-coast { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.7; }
+.gw-coast { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 1; }
 
 /* Legend */
 .gw-legend {
