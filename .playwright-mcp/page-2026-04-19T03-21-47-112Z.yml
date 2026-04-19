@@ -1,0 +1,241 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - tablist [ref=e4]:
+      - tab "Explore the past 40-year record · scrub timeline" [selected] [ref=e5] [cursor=pointer]:
+        - text: Explore the past
+        - emphasis [ref=e6]: 40-year record · scrub timeline
+      - tab "Project the future Drag warming · see new normal" [ref=e7] [cursor=pointer]:
+        - text: Project the future
+        - emphasis [ref=e8]: Drag warming · see new normal
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - img [ref=e12]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - text: GULF WATCH/
+            - emphasis [ref=e19]: v2.6
+          - generic [ref=e20]: Hurricane Risk Under Climate Change
+        - generic [ref=e21]: LIVE
+      - generic [ref=e23]: As the Gulf warms, rapid intensification becomes the default.
+      - generic [ref=e24]:
+        - generic [ref=e26]: ▸ MODE
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - button "◉ Historical" [ref=e29] [cursor=pointer]
+            - button "◈ Climate Projection" [ref=e30] [cursor=pointer]
+          - generic [ref=e32]: Explore the past — 40 years of observed Gulf conditions. Scrub the timeline to see what actually happened.
+      - generic [ref=e33]:
+        - generic [ref=e35]: ▸ TIMELINE
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]:
+              - generic [ref=e39]: Year
+              - generic [ref=e40]: "0.90"
+            - slider [ref=e42]: "0.9"
+            - generic [ref=e43]: 2021-01-01 · frame 13149 / 14610
+          - generic [ref=e44]:
+            - button "▶ PLAY" [ref=e45] [cursor=pointer]:
+              - generic [ref=e46]: ▶
+              - emphasis [ref=e47]: PLAY
+            - generic [ref=e48]:
+              - button "1×" [ref=e49] [cursor=pointer]
+              - button "2×" [ref=e50] [cursor=pointer]
+              - button "5×" [ref=e51] [cursor=pointer]
+              - button "10×" [ref=e52] [cursor=pointer]
+              - button "20×" [ref=e53] [cursor=pointer]
+      - generic [ref=e54]:
+        - generic [ref=e56]: ▸ FEATURE LAYERS
+        - generic [ref=e57]:
+          - generic [ref=e61] [cursor=pointer]:
+            - generic [ref=e62]: Eddy detection
+            - emphasis [ref=e63]: local maxima · r ≥ 80 km
+          - generic [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: Loop Current
+            - emphasis [ref=e69]: largest high-SSH filament
+          - generic [ref=e73] [cursor=pointer]:
+            - generic [ref=e74]: Risk zones
+            - emphasis [ref=e75]: SSH > 17 cm · rapid intensification
+          - generic [ref=e79] [cursor=pointer]:
+            - generic [ref=e80]: Predictions vs actual
+            - emphasis [ref=e81]: overlay Δ residuals
+      - generic [ref=e82]: "Data: NOAA / AVISO · 0.25° · 1985–2025"
+  - main [ref=e83]:
+    - generic [ref=e84]:
+      - generic [ref=e86]: January 2021 · Loop Current shed · Central Gulf at extreme RI risk · 0 warm eddies detected
+      - generic [ref=e88]: Historical
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - img:
+          - generic:
+            - generic: TEXAS
+            - generic: LOUISIANA
+            - generic: MISS · ALA
+            - generic: FLORIDA
+            - generic: FL PENINSULA
+            - generic: YUCATÁN
+            - generic: MEXICO
+            - generic: CUBA
+            - generic: GULF OF MEXICO
+            - generic: N. Atlantic Basin · depth 1,615 m avg
+            - generic: STRAITS OF FLORIDA
+            - generic: WESTERN GULF
+            - generic: BAY OF CAMPECHE
+            - generic:
+              - generic: HOUSTON
+            - generic:
+              - generic: NEW ORLEANS
+            - generic:
+              - generic: TAMPA
+            - generic:
+              - generic: MIAMI
+            - generic:
+              - generic: CANCÚN
+            - generic:
+              - generic: PENSACOLA
+          - generic:
+            - generic: "N"
+          - generic:
+            - generic: "0"
+            - generic: 250 km
+            - generic: "500"
+      - generic [ref=e94]:
+        - generic [ref=e95]: SSH ANOMALY · cm
+        - generic [ref=e98]:
+          - generic [ref=e99]: −20
+          - generic [ref=e100]: −10
+          - generic [ref=e101]: "0"
+          - generic [ref=e102]: "+10"
+          - generic [ref=e103]: "+17"
+          - generic [ref=e104]: "+25"
+        - generic [ref=e105]:
+          - text: SSH > +17 cm · rapid intensification potential
+          - text: hover for Ocean Heat Content
+    - generic [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - generic [ref=e111]: JAN 2021
+          - emphasis [ref=e112]: day 001 · 90.0%
+        - generic [ref=e113]:
+          - button "2005 KATRINA" [ref=e114] [cursor=pointer]
+          - button "2017 HARVEY" [ref=e115] [cursor=pointer]
+          - button "2021 IDA" [ref=e116] [cursor=pointer]
+      - generic [ref=e117]:
+        - generic [ref=e118]: EDDY SEPARATION EVENTS
+        - generic [ref=e119]:
+          - button "OPAL" [ref=e120] [cursor=pointer]:
+            - generic: OPAL
+          - button "KATRINA" [ref=e122] [cursor=pointer]:
+            - generic: KATRINA
+          - button "HARVEY" [ref=e124] [cursor=pointer]:
+            - generic: HARVEY
+          - button "MICHAEL" [ref=e126] [cursor=pointer]:
+            - generic: MICHAEL
+          - button "IDA" [ref=e128] [cursor=pointer]:
+            - generic: IDA
+          - button "MILTON" [ref=e130] [cursor=pointer]:
+            - generic: MILTON
+      - generic [ref=e133] [cursor=pointer]:
+        - generic:
+          - generic: "1985"
+        - generic:
+          - generic: "1990"
+        - generic:
+          - generic: "1995"
+        - generic:
+          - generic: "2000"
+        - generic:
+          - generic: "2005"
+        - generic:
+          - generic: "2010"
+        - generic:
+          - generic: "2015"
+        - generic:
+          - generic: "2020"
+        - generic:
+          - generic: "2025"
+        - button "ANDREW" [ref=e134]:
+          - generic: ANDREW
+        - button "OPAL" [ref=e136]:
+          - generic: OPAL
+        - button "KATRINA" [ref=e138]:
+          - generic: KATRINA
+        - button "RITA" [ref=e140]:
+          - generic: RITA
+        - button "HARVEY" [ref=e142]:
+          - generic: HARVEY
+        - button "MICHAEL" [ref=e144]:
+          - generic: MICHAEL
+        - button "LAURA" [ref=e146]:
+          - generic: LAURA
+        - button "IDA" [ref=e148]:
+          - generic: IDA
+        - button "MILTON" [ref=e150]:
+          - generic: MILTON
+  - complementary [ref=e152]:
+    - generic [ref=e153]:
+      - generic [ref=e154]:
+        - generic [ref=e155]: ▸ OCEAN RISK ENGINE
+        - generic [ref=e156]: HISTORICAL
+      - generic [ref=e159]:
+        - img [ref=e160]
+        - generic [ref=e167]:
+          - generic [ref=e168]: 99%
+          - text: Rapid-intensification probability · next 72 h
+          - emphasis [ref=e169]: vs. 34% in 1985 baseline
+    - generic [ref=e170]:
+      - generic [ref=e171]:
+        - generic [ref=e172]: ▸ TOP 3 RISK REGIONS
+        - generic [ref=e173]: 3 flagged
+      - generic [ref=e175]:
+        - generic [ref=e176] [cursor=pointer]:
+          - generic [ref=e177]: "01"
+          - generic [ref=e178]:
+            - generic [ref=e179]: Central Gulf basin
+            - generic [ref=e180]:
+              - text: Δh
+              - generic [ref=e181]: 28.4 cm
+              - text: · lat 23.7°N · lon 90.0°W
+          - generic [ref=e184]:
+            - text: "99"
+            - emphasis [ref=e185]: "%"
+            - generic [ref=e186]: ▼
+        - generic [ref=e187] [cursor=pointer]:
+          - generic [ref=e188]: "02"
+          - generic [ref=e189]:
+            - generic [ref=e190]: Central Gulf basin
+            - generic [ref=e191]:
+              - text: Δh
+              - generic [ref=e192]: 28.4 cm
+              - text: · lat 23.7°N · lon 89.3°W
+          - generic [ref=e195]:
+            - text: "99"
+            - emphasis [ref=e196]: "%"
+            - generic [ref=e197]: ▼
+        - generic [ref=e198] [cursor=pointer]:
+          - generic [ref=e199]: "03"
+          - generic [ref=e200]:
+            - generic [ref=e201]: Central Gulf basin
+            - generic [ref=e202]:
+              - text: Δh
+              - generic [ref=e203]: 28.4 cm
+              - text: · lat 23.7°N · lon 88.5°W
+          - generic [ref=e206]:
+            - text: "99"
+            - emphasis [ref=e207]: "%"
+            - generic [ref=e208]: ▲
+    - generic [ref=e209]:
+      - generic [ref=e210]:
+        - generic [ref=e211]: ▸ AI INTERACTION
+        - generic [ref=e212]: ORM-v3 · local
+      - generic [ref=e213]:
+        - generic [ref=e215]:
+          - generic [ref=e216]: SYS
+          - generic [ref=e217]: Ocean Risk Engine initialized. SSH surrogate ORM-v3 loaded.
+        - generic [ref=e218]:
+          - generic [ref=e219]: ">"
+          - textbox "ask the ocean…" [ref=e220]: Where would a storm intensify today?
+          - button "↵" [ref=e221] [cursor=pointer]
+        - generic [ref=e222]:
+          - button "Which ports are most at risk this season?" [ref=e223] [cursor=pointer]
+          - button "How does +2°C change landfall risk for Louisiana?" [ref=e224] [cursor=pointer]
+          - button "When was the last time conditions were this dangerous?" [ref=e225] [cursor=pointer]

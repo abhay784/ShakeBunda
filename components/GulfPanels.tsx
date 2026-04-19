@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import type { Eddy } from '@/lib/ocean/ssh';
+import type { PredictResponse } from '@/lib/databricks/types';
+import type { WarmingScenario } from '@/lib/hooks/useWarmingScenarios';
 
 // --- Shared UI primitives ---
 
@@ -87,8 +89,6 @@ interface LeftPanelProps {
   setLoopDepth: (d: number) => void;
   layers: { eddies: boolean; loopCurrent: boolean; riskZones: boolean; predictions: boolean };
   setLayers: (fn: (l: LeftPanelProps['layers']) => LeftPanelProps['layers']) => void;
-  mode: string;
-  setMode: (m: string) => void;
   speed: number;
   setSpeed: (s: number) => void;
   playing: boolean;
@@ -111,7 +111,7 @@ export function ViewModeSwitch({ viewMode, setViewMode }: { viewMode: 'past' | '
   );
 }
 
-export function LeftPanel({ t, setT, anomaly, setAnomaly, loopDepth, setLoopDepth, layers, setLayers, mode, setMode, speed, setSpeed, playing, setPlaying, viewMode, setViewMode }: LeftPanelProps) {
+export function LeftPanel({ t, setT, anomaly, setAnomaly, loopDepth, setLoopDepth, layers, setLayers, speed, setSpeed, playing, setPlaying, viewMode, setViewMode }: LeftPanelProps) {
   const yearVal = 1985 + t * 40;
   const year = Math.floor(yearVal);
   const dayOfYear = Math.floor(((yearVal - year) * 365) + 1);
@@ -143,32 +143,35 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, loopDepth, setLoopDept
         <div className="gw-data-readout">
           <div className="gw-data-row"><span>Variable</span><b>Sea Surface Height (cm)</b></div>
           <div className="gw-data-row"><span>Grid</span><b>96 × 56 · daily</b></div>
-          <div className="gw-data-row"><span>Span</span><b>1985 · 01 · 01 → 2025 · 12 · 31</b></div>
-          <div className="gw-data-row"><span>Frame</span><b className="gw-date-now">{dateStr}</b></div>
+          <div className="gw-data-row">
+            <span>Span</span>
+            <b>{viewMode === 'past' ? '1985 → 2025 · historical' : '2025 → 2100 · SSP5-8.5'}</b>
+          </div>
+          <div className="gw-data-row">
+            <span>Frame</span>
+            <b className="gw-date-now">
+              {viewMode === 'past' ? dateStr : `${Math.floor(2025 + t * 75)} · +${anomaly.toFixed(2)}°C`}
+            </b>
+          </div>
         </div>
       </Panel>
 
-      <Panel title="MODE">
-        <div className="gw-mode-switch" data-mode={mode}>
-          <button className={mode === 'historical' ? 'on' : ''} onClick={() => setMode('historical')}>
-            <span className="gw-mode-glyph">◉</span> Historical
-          </button>
-          <button className={mode === 'predicted' ? 'on' : ''} onClick={() => setMode('predicted')}>
-            <span className="gw-mode-glyph">◈</span> Climate Projection
-          </button>
-          <div className="gw-mode-ind" />
-        </div>
+      <Panel title={viewMode === 'past' ? 'HISTORICAL MODE' : 'CLIMATE PROJECTION'}>
         <div className="gw-mode-hint">
-          {mode === 'historical'
-            ? 'Replaying observed AVISO altimetry. Eddies & Loop Current traced from SSH gradient.'
-            : 'Forward simulation — SSH field evolved via convolutional ocean-surrogate model (τ+14d).'}
+          {viewMode === 'past'
+            ? 'Replaying 40 years of Gulf SSH. Eddies & Loop Current traced from SSH gradient.'
+            : 'Forward simulation — CNN+LSTM projects LCE separation probability under the warming scenario above.'}
         </div>
       </Panel>
 
       <Panel title="SIMULATION">
-        {viewMode === 'past' && (
+        {viewMode === 'past' ? (
           <Slider label="Time index" value={t} min={0} max={1} step={0.0005}
             onChange={setT} hint={`t = ${(t * 100).toFixed(2)}% of 40-yr window`} />
+        ) : (
+          <Slider label="Projected year" value={t} min={0} max={1} step={0.0005}
+            onChange={setT}
+            hint={`${Math.floor(2025 + t * 75)} · ${(t * 100).toFixed(0)}% along 2025→2100 horizon`} />
         )}
         <div className="gw-play-row">
           <button className="gw-play" onClick={() => setPlaying(p => !p)}>
@@ -216,25 +219,43 @@ export function LeftPanel({ t, setT, anomaly, setAnomaly, loopDepth, setLoopDept
 
 // --- WARMING HERO ---
 
+// Stop positions derived from the inverse accelerated curve
+// year = 2025 + 75 * (temp/4)^(1/1.4): temp → year
+//   1°C → 2052, 2°C → 2071, 3°C → 2086, 4°C → 2100.
 const WARMING_STOPS = [
-  { value: 0, label: 'Today', sub: '0°C' },
-  { value: 1, label: '2040', sub: '+1°C' },
-  { value: 2, label: '2060', sub: '+2°C' },
-  { value: 3, label: '2080', sub: '+3°C' },
+  { value: 0, label: '2025', sub: '0°C' },
+  { value: 1, label: '2052', sub: '+1°C' },
+  { value: 2, label: '2071', sub: '+2°C' },
+  { value: 3, label: '2086', sub: '+3°C' },
+  { value: 4, label: '2100', sub: '+4°C' },
 ];
 
 interface WarmingHeroProps {
   anomaly: number;
   setAnomaly: (a: number) => void;
   primary?: boolean;
+  /** null = past mode (hide link state). true/false = future mode linked state. */
+  linked?: boolean | null;
+  onRelink?: () => void;
+  /** Projected year shown while in future mode. */
+  futureYear?: number | null;
 }
 
-export function WarmingHero({ anomaly, setAnomaly, primary = false }: WarmingHeroProps) {
-  const pct = (anomaly / 3) * 100;
+export function WarmingHero({ anomaly, setAnomaly, primary = false, linked = null, onRelink, futureYear = null }: WarmingHeroProps) {
+  const pct = (anomaly / 4) * 100;
   return (
     <div className={`gw-hero-slider${primary ? ' gw-hero-primary' : ''}`}>
       <div className="gw-hero-head">
-        <span className="gw-hero-label">Gulf warming scenario</span>
+        <span className="gw-hero-label">
+          Gulf warming scenario
+          {futureYear !== null && <em className="gw-hero-year"> · {futureYear}</em>}
+          {linked === true && <span className="gw-hero-pill gw-hero-pill-auto">AUTO · SSP5-8.5</span>}
+          {linked === false && (
+            <button className="gw-hero-pill gw-hero-pill-manual" onClick={onRelink}>
+              MANUAL · click to re-link
+            </button>
+          )}
+        </span>
         <span className="gw-hero-val">+{anomaly.toFixed(2)} °C</span>
       </div>
       <div className="gw-hero-track">
@@ -242,7 +263,7 @@ export function WarmingHero({ anomaly, setAnomaly, primary = false }: WarmingHer
         <input
           type="range"
           min={0}
-          max={3}
+          max={4}
           step={0.05}
           value={anomaly}
           onChange={e => setAnomaly(parseFloat(e.target.value))}
@@ -251,8 +272,8 @@ export function WarmingHero({ anomaly, setAnomaly, primary = false }: WarmingHer
           {WARMING_STOPS.map(s => (
             <button
               key={s.value}
-              className={`gw-hero-stop${Math.abs(anomaly - s.value) < 0.03 ? ' on' : ''}`}
-              style={{ left: `${(s.value / 3) * 100}%` }}
+              className={`gw-hero-stop${Math.abs(anomaly - s.value) < 0.04 ? ' on' : ''}`}
+              style={{ left: `${(s.value / 4) * 100}%` }}
               onClick={() => setAnomaly(s.value)}
             >
               <i />
@@ -277,14 +298,6 @@ interface Region {
   trend: string;
 }
 
-interface PredictionView {
-  ri_days_per_year: number;
-  lce_separation_prob_7d: number;
-  lce_separation_prob_30d: number;
-  highest_risk_zone: string;
-  source: 'databricks' | 'stub';
-}
-
 interface RightPanelProps {
   t: number;
   anomaly: number;
@@ -293,7 +306,9 @@ interface RightPanelProps {
   mode: string;
   onFly?: (r: Region) => void;
   baselinePct: number;
-  prediction?: PredictionView | null;
+  prediction?: PredictResponse | null;
+  warmingScenarios?: WarmingScenario[];
+  scenariosLoading?: boolean;
 }
 
 export function regionName(x: number, y: number): string {
@@ -304,16 +319,51 @@ export function regionName(x: number, y: number): string {
   return 'Central Gulf basin';
 }
 
-export function RightPanel({ t, anomaly, grid, eddies, mode, onFly, baselinePct, prediction }: RightPanelProps) {
-  const [chat, setChat] = useState([
-    { role: 'sys', text: 'Ocean Risk Engine initialized. SSH surrogate ORM-v3 loaded.' },
-  ]);
-  const [input, setInput] = useState('Where would a storm intensify today?');
-  const chatEnd = useRef<HTMLDivElement>(null);
+function deriveModelRegions(prediction: PredictResponse | null | undefined): Region[] {
+  if (!prediction) return [];
 
-  useEffect(() => { chatEnd.current?.scrollTo(0, 99999); }, [chat]);
+  const rows = prediction.ri_probability.length;
+  const cols = prediction.ri_probability[0]?.length ?? 0;
+  if (!rows || !cols) return [];
 
-  const regions = useMemo<Region[]>(() => {
+  const peaks: Array<{ row: number; col: number; prob: number }> = [];
+  for (let row = 1; row < rows - 1; row++) {
+    for (let col = 1; col < cols - 1; col++) {
+      const v = prediction.ri_probability[row][col];
+      if (v < 0.12) continue;
+      let isPeak = true;
+      for (let dr = -1; dr <= 1 && isPeak; dr++) {
+        for (let dc = -1; dc <= 1 && isPeak; dc++) {
+          if ((dr || dc) && (prediction.ri_probability[row + dr][col + dc] ?? 0) > v) isPeak = false;
+        }
+      }
+      if (isPeak) peaks.push({ row, col, prob: v });
+    }
+  }
+
+  peaks.sort((a, b) => b.prob - a.prob);
+  const kept: typeof peaks = [];
+  for (const peak of peaks) {
+    if (kept.every(k => Math.hypot(k.row - peak.row, k.col - peak.col) > Math.max(rows, cols) * 0.2)) kept.push(peak);
+    if (kept.length >= 3) break;
+  }
+
+  return kept.map((peak, index) => {
+    const x = peak.col / Math.max(1, cols - 1);
+    const y = 1 - peak.row / Math.max(1, rows - 1);
+    return {
+      name: index === 0 ? prediction.highest_risk_zone : regionName(x, y),
+      x,
+      y,
+      prob: peak.prob,
+      ssh: (peak.prob * 17).toFixed(1),
+      trend: peak.prob >= prediction.lce_separation_prob_30d ? '▲' : '▼',
+    };
+  });
+}
+
+export function RightPanel({ t, anomaly, grid, eddies, mode, onFly, baselinePct, prediction, warmingScenarios, scenariosLoading }: RightPanelProps) {
+  const fallbackRegions = useMemo<Region[]>(() => {
     return eddies
       .map(e => ({
         name: regionName(e.x, e.y),
@@ -325,131 +375,144 @@ export function RightPanel({ t, anomaly, grid, eddies, mode, onFly, baselinePct,
       .sort((a, b) => b.prob - a.prob)
       .slice(0, 3);
   }, [eddies, t, anomaly]);
+  const modelRegions = useMemo<Region[]>(() => deriveModelRegions(prediction), [prediction]);
+  const regions = modelRegions.length > 0 ? modelRegions : fallbackRegions;
 
-  function ask() {
-    if (!input.trim()) return;
-    const q = input.trim();
-    setChat(c => [...c, { role: 'u', text: q }]);
-    setInput('');
-    setTimeout(() => {
-      const top = regions[0];
-      if (!top) {
-        setChat(c => [...c, { role: 'a', text: 'No high-SSH anomaly exceeds the +14 cm threshold in the current frame.' }]);
-        return;
-      }
-      const lines = [
-        `Highest intensification potential: ${top.name} (${(top.prob * 100) | 0}% likelihood).`,
-        `SSH anomaly there is ${top.ssh} cm — the upper-ocean heat content can sustain a Cat-${Math.min(5, 3 + Math.floor(top.prob * 2))} storm.`,
-        `Flagged ${regions.length} zones above threshold. Pinning ${top.name} on the map.`,
-      ];
-      setChat(c => [...c, { role: 'a', text: lines.join(' '), pin: top }]);
-      onFly?.(top);
-    }, 420);
-  }
+  const p7 = prediction?.lce_separation_prob_7d ?? 0;
+  const p30 = prediction?.lce_separation_prob_30d ?? 0;
+  const days = prediction?.ri_days_per_year ?? 0;
+
+  // Real scenario data from 4 parallel predict calls at sst_delta = 0,1,2,3.
+  // This is what the MODEL actually says — no client-side extrapolation.
+  const scenarios = useMemo(() => {
+    if (!warmingScenarios) return [];
+    return warmingScenarios.map(s => ({
+      c: s.sst_delta,
+      p7: s.data?.lce_separation_prob_7d ?? 0,
+      p30: s.data?.lce_separation_prob_30d ?? 0,
+      days: s.data?.ri_days_per_year ?? 0,
+      loaded: !!s.data,
+    }));
+  }, [warmingScenarios]);
+  const peakDays = Math.max(...scenarios.map(s => s.days), 1);
+  const scenario0 = scenarios.find(s => s.c === 0);
+  const scenarioMax = scenarios.find(s => s.c === 4);
+  // Detect whether the model's LCE heads actually respond to warming. If 7d
+  // spread across +0..+4°C is below 0.5 pp, flag as flat so the panel can
+  // tell judges the truth instead of implying a linear sensitivity.
+  const p7Spread = scenario0 && scenarioMax ? Math.abs(scenarioMax.p7 - scenario0.p7) : 0;
+  const p30Spread = scenario0 && scenarioMax ? Math.abs(scenarioMax.p30 - scenario0.p30) : 0;
+  const daysSpread = scenario0 && scenarioMax ? scenarioMax.days - scenario0.days : 0;
+  const separationFlat = p7Spread < 0.005 && p30Spread < 0.005;
 
   return (
     <aside className="gw-right">
       <Panel
-        title="LCE SEPARATION MODEL"
+        title="MODEL PREDICTIONS"
         meta={prediction ? (prediction.source === 'stub' ? 'DEMO DATA' : 'LIVE · gulf-watch-v1') : 'connecting…'}
       >
-        <div className="gw-model-out">
-          <div className="gw-model-row">
-            <span>P(separation · 7d)</span>
-            <b>{prediction ? `${(prediction.lce_separation_prob_7d * 100).toFixed(0)}%` : '—'}</b>
+        <div className="gw-pred-head">
+          <div className="gw-pred-current">
+            <span>Current scenario</span>
+            <b>+{anomaly.toFixed(1)}°C</b>
+            <em>{mode === 'predicted' ? 'Climate projection' : 'Historical replay'}</em>
           </div>
-          <div className="gw-model-row">
-            <span>P(separation · 30d)</span>
-            <b>{prediction ? `${(prediction.lce_separation_prob_30d * 100).toFixed(0)}%` : '—'}</b>
-          </div>
-          <div className="gw-model-row">
+          <div className="gw-pred-ri">
             <span>RI days / yr</span>
-            <b>{prediction ? prediction.ri_days_per_year.toFixed(1) : '—'}</b>
+            <b>{prediction ? days.toFixed(1) : '—'}</b>
           </div>
-          <div className="gw-model-row stack">
-            <span>Highest-risk zone</span>
-            <em>{prediction ? prediction.highest_risk_zone : '—'}</em>
+        </div>
+
+        <div className="gw-pred-bar">
+          <div className="gw-pred-bar-row">
+            <span className="gw-pred-bar-lbl">P(LCE separation · 7d)</span>
+            <span className="gw-pred-bar-val">{prediction ? `${(p7 * 100).toFixed(0)}%` : '—'}</span>
           </div>
+          <div className="gw-pred-bar-track">
+            <div className="gw-pred-bar-fill gw-pred-7d" style={{ width: `${p7 * 100}%` }} />
+          </div>
+        </div>
+        <div className="gw-pred-bar">
+          <div className="gw-pred-bar-row">
+            <span className="gw-pred-bar-lbl">P(LCE separation · 30d)</span>
+            <span className="gw-pred-bar-val">{prediction ? `${(p30 * 100).toFixed(0)}%` : '—'}</span>
+          </div>
+          <div className="gw-pred-bar-track">
+            <div className="gw-pred-bar-fill gw-pred-30d" style={{ width: `${p30 * 100}%` }} />
+          </div>
+        </div>
+
+        <div className="gw-pred-hint">
+          Two sigmoid heads of the CNN+LSTM. 7-day head captures imminent eddy detachment; 30-day head captures the fuller separation cycle.
         </div>
       </Panel>
 
-      <Panel title="OCEAN RISK ENGINE" meta={mode === 'predicted' ? 'FORECAST · τ+14d' : 'Historical'}>
-        <div className="gw-risk-hero">
-          <div className="gw-risk-gauge">
-            <svg viewBox="0 0 120 60" width="100%" height="80">
-              <defs>
-                <linearGradient id="gauge" x1="0" x2="1">
-                  <stop offset="0%" stopColor="#4dd6ff" />
-                  <stop offset="55%" stopColor="#ffb347" />
-                  <stop offset="100%" stopColor="#ff3864" />
-                </linearGradient>
-              </defs>
-              <path d="M 10,55 A 50,50 0 0 1 110,55" stroke="url(#gauge)" strokeWidth="4" fill="none" strokeLinecap="round" />
-              <path d="M 10,55 A 50,50 0 0 1 110,55" stroke="rgba(255,255,255,0.06)" strokeWidth="12" fill="none" />
-              {(() => {
-                const p = Math.min(1, regions[0]?.prob || 0);
-                const a = Math.PI * (1 - p);
-                const nx = 60 + Math.cos(a) * 48, ny = 55 - Math.sin(a) * 48;
-                return (
-                  <g>
-                    <line x1="60" y1="55" x2={nx} y2={ny} stroke="#fff" strokeWidth="1.5" />
-                    <circle cx="60" cy="55" r="4" fill="#fff" />
-                  </g>
-                );
-              })()}
-            </svg>
-            <div className="gw-gauge-lbl">
-              <b>{((regions[0]?.prob || 0) * 100).toFixed(0)}%</b>
-              <span>Basin-wide RI probability · next 72h</span>
-              <span className="gw-gauge-baseline">vs. {baselinePct.toFixed(0)}% in 1985</span>
-            </div>
+      <Panel title="WARMING SENSITIVITY" meta={scenariosLoading ? 'running 4 model calls…' : 'measured · 4 predict calls'}>
+        <div className="gw-sens-grid">
+          <div className="gw-sens-h">
+            <span>°C</span>
+            <span>7d</span>
+            <span>30d</span>
+            <span>RI d/yr</span>
           </div>
+          {scenarios.map(s => {
+            const isActive = Math.abs(s.c - anomaly) < 0.5;
+            return (
+              <div key={s.c} className={`gw-sens-row${isActive ? ' on' : ''}`}>
+                <span className="gw-sens-c">+{s.c}°C</span>
+                <span className="gw-sens-cell">
+                  <i className="gw-sens-bar" style={{ width: `${s.p7 * 100}%`, background: '#4dd6ff' }} />
+                  <em>{(s.p7 * 100).toFixed(0)}%</em>
+                </span>
+                <span className="gw-sens-cell">
+                  <i className="gw-sens-bar" style={{ width: `${s.p30 * 100}%`, background: '#a078ff' }} />
+                  <em>{(s.p30 * 100).toFixed(0)}%</em>
+                </span>
+                <span className="gw-sens-cell">
+                  <i className="gw-sens-bar" style={{ width: `${(s.days / peakDays) * 100}%`, background: '#ff8a6b' }} />
+                  <em>{s.days.toFixed(1)}</em>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="gw-pred-hint">
+          {scenariosLoading && scenarios.every(s => !s.loaded)
+            ? <>Querying model at 5 warming levels…</>
+            : separationFlat
+              ? <>Separation heads return <b>flat</b> across +0 to +4°C (Δ &lt; 0.5pp) — this model's LCE probability reads SSH geometry only, not SST. RI days/yr responds: +<b>{daysSpread.toFixed(1)}</b> days from +0 → +4°C.</>
+              : <>Measured across +0 → +4°C (SSP5-8.5 end-of-century): 7d separation shifts <b>{(p7Spread * 100).toFixed(1)} pp</b>, 30d shifts <b>{(p30Spread * 100).toFixed(1)} pp</b>, RI days/yr adds <b>{daysSpread.toFixed(1)}</b>.</>}
         </div>
       </Panel>
 
-      <Panel title="TOP 3 RISK REGIONS" meta={`${regions.length} flagged`}>
+      <Panel title="TOP RISK ZONES" meta={prediction ? `${regions.length} flagged · model heatmap` : `${regions.length} flagged · SSH surrogate`}>
         <div className="gw-regions">
-          {regions.map((r, i) => (
-            <div className="gw-region" key={i} onClick={() => onFly?.(r)}>
-              <div className="gw-region-rank">0{i + 1}</div>
-              <div className="gw-region-body">
-                <div className="gw-region-name">{r.name}</div>
-                <div className="gw-region-sub">Δh <b>{r.ssh} cm</b> · lat {(18 + r.y * 12).toFixed(1)}°N · lon {(98 - r.x * 18).toFixed(1)}°W</div>
-                <div className="gw-region-bar">
-                  <div className="gw-region-fill" style={{ width: `${r.prob * 100}%` }} />
+          {regions.map((r, i) => {
+            // Use the real sensitivity measured from the scenarios endpoint
+            // instead of a hard-coded slope. Falls back to no-delta if
+            // scenarios haven't loaded yet.
+            const measuredSlope = scenario0 && scenarioMax ? (scenarioMax.p7 - scenario0.p7) / 4 : 0;
+            const baseProb = Math.max(0, r.prob - measuredSlope * anomaly);
+            const delta = (r.prob - baseProb) * 100;
+            return (
+              <div className="gw-region" key={i} onClick={() => onFly?.(r)}>
+                <div className="gw-region-rank">0{i + 1}</div>
+                <div className="gw-region-body">
+                  <div className="gw-region-name">{r.name}</div>
+                  <div className="gw-region-sub">lat {(18 + r.y * 12).toFixed(1)}°N · lon {(98 - r.x * 18).toFixed(1)}°W</div>
+                  <div className="gw-region-bar">
+                    <div className="gw-region-fill" style={{ width: `${r.prob * 100}%` }} />
+                    <div className="gw-region-bar-base" style={{ width: `${baseProb * 100}%` }} />
+                  </div>
+                  <div className="gw-region-delta">
+                    baseline <b>{(baseProb * 100) | 0}%</b> → at +{anomaly.toFixed(1)}°C <b>{(r.prob * 100) | 0}%</b>
+                    <em className={delta > 0 ? 'up' : 'dn'}>+{delta.toFixed(0)}pp</em>
+                  </div>
                 </div>
               </div>
-              <div className="gw-region-pct">
-                <b>{(r.prob * 100) | 0}</b><em>%</em>
-                <span className={r.trend === '▲' ? 'up' : 'dn'}>{r.trend}</span>
-              </div>
-            </div>
-          ))}
-          {regions.length === 0 && <div className="gw-empty">No regions above +14 cm threshold.</div>}
-        </div>
-      </Panel>
-
-      <Panel title="AI INTERACTION" meta="ORM-v3 · local">
-        <div className="gw-chat" ref={chatEnd}>
-          {chat.map((m, i) => (
-            <div key={i} className={`gw-msg gw-msg-${m.role}`}>
-              {m.role === 'sys' && <span className="gw-msg-tag">SYS</span>}
-              {m.role === 'u' && <span className="gw-msg-tag">YOU</span>}
-              {m.role === 'a' && <span className="gw-msg-tag">ORM</span>}
-              <span>{m.text}</span>
-              {(m as { pin?: Region }).pin && <span className="gw-msg-pin">📍 pinned {(m as { pin?: Region }).pin!.name}</span>}
-            </div>
-          ))}
-        </div>
-        <form className="gw-chat-input" onSubmit={e => { e.preventDefault(); ask(); }}>
-          <span className="gw-chat-prompt">&gt;</span>
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="ask the ocean…" />
-          <button type="submit">↵</button>
-        </form>
-        <div className="gw-chat-suggest">
-          {['Which ports are most at risk this season?', 'How does +2°C change landfall risk for Louisiana?', 'When was the last time conditions were this dangerous?'].map(s =>
-            <button key={s} onClick={() => setInput(s)}>{s}</button>
-          )}
+            );
+          })}
+          {regions.length === 0 && <div className="gw-empty">No regions above the model&apos;s risk threshold.</div>}
         </div>
       </Panel>
     </aside>
@@ -461,11 +524,10 @@ export function RightPanel({ t, anomaly, grid, eddies, mode, onFly, baselinePct,
 interface AnalyticsProps {
   tSeries: number[];
   eddySeries: number[];
-  predSeries: number[];
   tIdx: number;
 }
 
-export function Analytics({ tSeries, eddySeries, predSeries, tIdx }: AnalyticsProps) {
+export function Analytics({ tSeries, eddySeries, tIdx }: AnalyticsProps) {
   function Sparkline({ data, color, label, value, unit, range }: {
     data: number[]; color: string; label: string; value: string; unit: string; range?: [number, number];
   }) {
@@ -502,28 +564,21 @@ export function Analytics({ tSeries, eddySeries, predSeries, tIdx }: AnalyticsPr
     );
   }
 
-  function DualSpark({ a, b, label }: { a: number[]; b: number[]; label: string }) {
-    const w = 240, h = 48;
-    const lo = Math.min(...a, ...b), hi = Math.max(...a, ...b);
-    const toPath = (arr: number[]) => arr.map((v, i) => {
-      const x = (i / (arr.length - 1)) * w;
-      const y = h - ((v - lo) / (hi - lo || 1)) * (h - 4) - 2;
-      return `${i ? 'L' : 'M'} ${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-    const err = a.map((v, i) => Math.abs(v - b[i])).reduce((p, c) => p + c, 0) / a.length;
+  function LegendSpark() {
     return (
-      <div className="gw-spark">
+      <div className="gw-spark gw-spark-legend-cell">
         <div className="gw-spark-h">
-          <span>{label}</span>
-          <b style={{ color: '#a078ff' }}>MAE {err.toFixed(3)}</b>
+          <span>SSH ANOMALY · cm</span>
+          <b style={{ color: '#ff8aa2' }}>RI &gt; +17 cm</b>
         </div>
-        <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none">
-          <path d={toPath(a)} stroke="#4dd6ff" strokeWidth="1.2" fill="none" />
-          <path d={toPath(b)} stroke="#a078ff" strokeWidth="1.2" fill="none" strokeDasharray="3 2" />
-        </svg>
-        <div className="gw-spark-legend">
-          <span><i style={{ background: '#4dd6ff' }} />observed</span>
-          <span><i style={{ background: '#a078ff' }} />predicted</span>
+        <div className="gw-legend-bar">
+          <span className="gw-legend-grad" />
+          <span className="gw-legend-ticks">
+            <i>−20</i><i>−10</i><i>0</i><i>+10</i><i>+17</i><i>+25</i>
+          </span>
+        </div>
+        <div className="gw-legend-note">
+          <span className="gw-pip risk" /> colormap of the model&apos;s RI field · red zones = rapid intensification potential
         </div>
       </div>
     );
@@ -537,7 +592,7 @@ export function Analytics({ tSeries, eddySeries, predSeries, tIdx }: AnalyticsPr
       <Sparkline data={eddySeries} color="#ffb347" label="Eddy count"
         value={eddySeries[Math.floor(tIdx * (eddySeries.length - 1))].toFixed(0)} unit=""
         range={[0, 12]} />
-      <DualSpark a={tSeries} b={predSeries} label="Predicted vs actual" />
+      <LegendSpark />
     </div>
   );
 }

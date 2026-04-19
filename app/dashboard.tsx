@@ -6,6 +6,28 @@ import { LeftPanel, RightPanel, Analytics, WarmingHero, regionName } from '@/com
 import { Timeline } from '@/components/GulfTimeline';
 import { buildGrid, detectEddies } from '@/lib/ocean/ssh';
 import { usePrediction } from '@/lib/hooks/usePrediction';
+import { useWarmingScenarios } from '@/lib/hooks/useWarmingScenarios';
+
+// Future-mode timeline: 2025 (today) → 2100 (IPCC end-of-century horizon).
+const FUTURE_START = 2025;
+const FUTURE_END = 2100;
+const FUTURE_SPAN = FUTURE_END - FUTURE_START;
+
+export function futureYearFromT(t: number): number {
+  return FUTURE_START + Math.max(0, Math.min(1, t)) * FUTURE_SPAN;
+}
+
+// Accelerated warming curve — SSP5-8.5 "high emissions / business as usual".
+// Power-law n=1.4 matches the convex shape of CMIP6 Gulf SST projections
+// (Wang 2023, Karnauskas 2023, Muhling 2018). 2025 → 0°C, 2100 → +4.0°C.
+// Cross-checks: 2040 ≈ +0.4, 2060 ≈ +1.4, 2080 ≈ +2.6, 2100 = +4.0°C —
+// within the IPCC AR6 "likely" range for SSP5-8.5 Gulf regional warming.
+export const WARMING_MAX = 4;
+export function warmingCurve(year: number): number {
+  const clamped = Math.max(FUTURE_START, Math.min(FUTURE_END, year));
+  const frac = (clamped - FUTURE_START) / FUTURE_SPAN;
+  return Math.pow(frac, 1.4) * WARMING_MAX;
+}
 
 function genSeries() {
   const ts: number[] = [], es: number[] = [], ps: number[] = [];
@@ -46,7 +68,6 @@ export default function Dashboard() {
   const [layers, setLayers] = useState({
     eddies: true, loopCurrent: true, riskZones: true, predictions: false,
   });
-  const [mode, setMode] = useState('historical');
   const [speed, setSpeed] = useState(5);
   const [playing, setPlaying] = useState(false);
   const [eddyCount, setEddyCount] = useState(0);
@@ -59,12 +80,39 @@ export default function Dashboard() {
   const [pin, setPin] = useState<Pin | null>(null);
   const [series] = useState(() => genSeries());
   const [viewMode, setViewMode] = useState<'past' | 'future'>('past');
+  // In future mode, anomaly auto-tracks the warming curve as time advances.
+  // Manually dragging the temp slider sets this to false — user takes the wheel.
+  const [anomalyLinked, setAnomalyLinked] = useState<boolean>(true);
+  // Derived — keeps "mode" copy/labels consistent with the single view switch
+  const mode = viewMode === 'future' ? 'predicted' : 'historical';
 
   // Persist time + loop depth
   useEffect(() => { localStorage.setItem('gw.t', t.toString()); }, [t]);
   useEffect(() => { localStorage.setItem('gw.loopDepth', loopDepth.toString()); }, [loopDepth]);
 
+  // Re-link anomaly to the warming curve whenever we enter future mode.
+  // Past mode leaves anomaly alone — it's a manual "what-if" slider there.
+  useEffect(() => {
+    if (viewMode === 'future') setAnomalyLinked(true);
+  }, [viewMode]);
+
+  // Future mode: drive anomaly from the warming curve as t advances (playback
+  // OR manual scrub). A single reactive path handles both — beats threading
+  // the ramp through the RAF loop.
+  useEffect(() => {
+    if (viewMode !== 'future' || !anomalyLinked) return;
+    setAnomaly(warmingCurve(futureYearFromT(t)));
+  }, [t, viewMode, anomalyLinked]);
+
+  // Wrapped setter for the temp slider — manual drag breaks the auto-link so
+  // user overrides aren't immediately stomped by the next ramp tick.
+  const handleAnomalyChange = (v: number) => {
+    if (viewMode === 'future' && anomalyLinked) setAnomalyLinked(false);
+    setAnomaly(v);
+  };
+
   const { data: prediction } = usePrediction(t, anomaly, loopDepth);
+  const { scenarios: warmingScenarios, loading: scenariosLoading } = useWarmingScenarios(t, loopDepth);
 
   // Playback
   useEffect(() => {
@@ -120,20 +168,20 @@ export default function Dashboard() {
   }, []);
 
   const status = useMemo(() => {
-    const yearVal = 1985 + t * 40;
-    const year = Math.floor(yearVal);
-    const month = Math.floor((yearVal - year) * 12);
+    const histYear = 1985 + t * 40;
+    const month = Math.floor((histYear - Math.floor(histYear)) * 12);
     const monthName = ['January','February','March','April','May','June','July','August','September','October','November','December'][month];
+    const displayYear = viewMode === 'future' ? Math.floor(futureYearFromT(t)) : Math.floor(histYear);
     const n = eddies.length;
     const lc = n <= 1 ? 'intact' : (n >= 4 || peakStrength > 25 ? 'shedding' : 'extended');
     if (n === 0) {
-      return `${monthName} ${year} · Loop Current ${lc} · Central Gulf basin at low RI risk · 0 warm eddies detected`;
+      return `${monthName} ${displayYear} · Loop Current ${lc} · Central Gulf basin at low RI risk · 0 warm eddies detected`;
     }
     const top = eddies.reduce((a, b) => (a.strength > b.strength ? a : b));
     const prob = Math.min(0.99, (top.strength - 0.35) * 1.15 + anomaly * 0.08);
     const level = prob < 0.4 ? 'low' : prob < 0.7 ? 'elevated' : 'high';
-    return `${monthName} ${year} · Loop Current ${lc} · ${regionName(top.x, top.y)} at ${level} RI risk · ${n} warm eddies detected`;
-  }, [t, anomaly, eddies, peakStrength]);
+    return `${monthName} ${displayYear} · Loop Current ${lc} · ${regionName(top.x, top.y)} at ${level} RI risk · ${n} warm eddies detected`;
+  }, [t, anomaly, eddies, peakStrength, viewMode]);
 
   return (
     <div
@@ -142,10 +190,9 @@ export default function Dashboard() {
     >
       <LeftPanel
         t={t} setT={setT}
-        anomaly={anomaly} setAnomaly={setAnomaly}
+        anomaly={anomaly} setAnomaly={handleAnomalyChange}
         loopDepth={loopDepth} setLoopDepth={setLoopDepth}
         layers={layers} setLayers={setLayers}
-        mode={mode} setMode={setMode}
         speed={speed} setSpeed={setSpeed}
         playing={playing} setPlaying={setPlaying}
         viewMode={viewMode} setViewMode={setViewMode}
@@ -174,7 +221,14 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <WarmingHero anomaly={anomaly} setAnomaly={setAnomaly} primary={viewMode === 'future'} />
+        <WarmingHero
+          anomaly={anomaly}
+          setAnomaly={handleAnomalyChange}
+          primary={viewMode === 'future'}
+          linked={viewMode === 'future' ? anomalyLinked : null}
+          onRelink={() => setAnomalyLinked(true)}
+          futureYear={viewMode === 'future' ? Math.floor(futureYearFromT(t)) : null}
+        />
 
         <div className="gw-stage">
           <GulfMap
@@ -186,23 +240,10 @@ export default function Dashboard() {
             showGrid={showGrid}
             onEddyCount={setEddyCount}
             mode={mode}
-            riskOverlay={layers.predictions ? prediction?.ri_probability ?? null : null}
+            riskOverlay={prediction?.ri_probability ?? null}
           />
 
           <div className="gw-stage-chrome">
-            <div className="gw-legend">
-              <div className="gw-legend-h">SSH ANOMALY · cm</div>
-              <div className="gw-legend-bar">
-                <span className="gw-legend-grad" />
-                <span className="gw-legend-ticks">
-                  <i>−20</i><i>−10</i><i>0</i><i>+10</i><i>+17</i><i>+25</i>
-                </span>
-              </div>
-              <div className="gw-legend-note">
-                <span className="gw-pip risk" /> SSH &gt; +17 cm · <b>rapid intensification potential</b>
-              </div>
-            </div>
-
             <div className="gw-crosshair">
               <div className="gw-crosshair-h" />
               <div className="gw-crosshair-v" />
@@ -229,7 +270,7 @@ export default function Dashboard() {
         </div>
 
         <div className="gw-bottom">
-          <Analytics tSeries={series.ts} eddySeries={series.es} predSeries={series.ps} tIdx={t} />
+          <Analytics tSeries={series.ts} eddySeries={series.es} tIdx={t} />
           <Timeline t={t} setT={setT} playing={playing} />
         </div>
       </main>
@@ -239,6 +280,8 @@ export default function Dashboard() {
         onFly={flyTo}
         baselinePct={baselinePct}
         prediction={prediction}
+        warmingScenarios={warmingScenarios}
+        scenariosLoading={scenariosLoading}
       />
 
       {tweakOpen && (
