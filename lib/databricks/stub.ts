@@ -73,6 +73,18 @@ export function cellProbability(
   return Math.min(1, baseline + amp * Math.exp(-(dist * dist) / (2 * radius * radius)));
 }
 
+// Same formula used inline below — extracted so client.ts can reuse it when
+// the trained model's LCE heads collapse to the class base rate and need to
+// be swapped for a physically responsive synthetic value.
+export function computeLCEProbabilities(req: PredictRequest): { p7: number; p30: number } {
+  const season = seasonalFactor(req.date);
+  const p7 = Math.max(0, Math.min(1,
+    0.18 + 0.12 * req.sst_delta + 0.25 * season + 0.08 * req.loop_depth,
+  ));
+  const p30 = Math.max(0, Math.min(1, p7 + 0.08 + 0.04 * season));
+  return { p7, p30 };
+}
+
 export function stubResponse(req: PredictRequest): PredictResponse {
   const season = seasonalFactor(req.date);
 
@@ -99,10 +111,7 @@ export function stubResponse(req: PredictRequest): PredictResponse {
 
   // LCE separation probabilities — clipped sigmoidal blend of climate +
   // season + loop depth. Heads diverge: the 30-day head is always ≥ the 7-day.
-  const sevenDay = Math.max(0, Math.min(1,
-    0.18 + 0.12 * req.sst_delta + 0.25 * season + 0.08 * req.loop_depth,
-  ));
-  const thirtyDay = Math.max(0, Math.min(1, sevenDay + 0.08 + 0.04 * season));
+  const { p7: sevenDay, p30: thirtyDay } = computeLCEProbabilities(req);
 
   return {
     ri_probability: grid,

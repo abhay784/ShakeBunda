@@ -389,7 +389,7 @@ export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCou
             <rect width="960" height="560" fill="white" />
             <use
               href="/gulf-mexico.svg#path106"
-              transform="matrix(0, 0.90553, 1.12866, 0, -79.80, -138.44)"
+              transform="matrix(-0.09373, 1.07122, 1.33519, 0.11683, -154.00, -222.85)"
               fill="black"
             />
           </mask>
@@ -412,15 +412,9 @@ export function GulfMap({ t, anomaly, layers, density, glow, showGrid, onEddyCou
               outline (path204) below is untouched. */}
           <use
             href="/gulf-mexico.svg#path106"
-            transform="matrix(0, 0.90553, 1.12866, 0, -79.80, -138.44)"
-            fill="rgba(38, 42, 50, 0.92)"
+            transform="matrix(-0.09373, 1.07122, 1.33519, 0.11683, -154.00, -222.85)"
+            fill="rgba(28, 32, 40, 0.96)"
             stroke="none"
-          />
-          {/* Actual coastline from Gulf_of_Mexico_location_map.svg — path204 is the cartographic outline */}
-          <use
-            href="/gulf-mexico.svg#path204"
-            transform="matrix(0, 0.90553, 1.12866, 0, -79.80, -138.44)"
-            opacity="1"
           />
         </g>
         <g className="gw-geo-lbl">

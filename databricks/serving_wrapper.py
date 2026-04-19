@@ -126,7 +126,12 @@ class GulfWatchModel(mlflow.pyfunc.PythonModel):
         target = pd.Timestamp(date_str)
         return int(np.argmin(np.abs(self.times - target)))
 
-    def _features_for_window(self, end_idx: int) -> np.ndarray:
+    def _features_for_window(
+        self,
+        end_idx: int,
+        sst_delta: float = 0.0,
+        loop_depth: float = 0.5,
+    ) -> np.ndarray:
         """Build the (SEQ_LEN, input_size) feature sequence ending at end_idx."""
         start = max(0, end_idx - SEQ_LEN)
         # Pad at the left if too close to series start
@@ -142,19 +147,25 @@ class GulfWatchModel(mlflow.pyfunc.PythonModel):
             window = self.raw[start:end_idx]
             actual_start = start
 
+        # Apply the same climate perturbation to the sequence seen by the
+        # classifier so the 7d / 30d heads move with the scenario sliders.
+        warming_m = sst_delta * (WARMING_OFFSET / 2.0)
+        loop_boost = (loop_depth - 0.5) * 0.03
+        adjusted_window = window + warming_m + loop_boost
+
         if not self.use_cnn:
             # Fallback: compute scalar features per day from the LC zone mean.
             # The training-time scalar features are ~zero-mean by construction.
-            lc = window.mean(axis=(1, 2))
+            lc = adjusted_window.mean(axis=(1, 2))
             return np.stack([lc, lc, lc], axis=1).astype(np.float32)
 
         # CNN feature extraction — same channel builder as training.
         chans = build_three_channels(
-            self.raw, actual_start, actual_start + SEQ_LEN,
+            adjusted_window, 0, adjusted_window.shape[0],
             self.std_ch, self.lag,
         )[:SEQ_LEN]
         # If we padded, recompute the head on the truncated raw
-        if window.shape[0] != self.raw[actual_start:actual_start + SEQ_LEN].shape[0]:
+        if adjusted_window.shape[0] != SEQ_LEN:
             # Edge case: very early dates. Just use the available window.
             chans = chans[-window.shape[0]:]
             if chans.shape[0] < SEQ_LEN:
@@ -172,7 +183,7 @@ class GulfWatchModel(mlflow.pyfunc.PythonModel):
         idx = self._date_to_index(date)
 
         # 1. Model scalars (p7, p30) from the 30-day window ending at this date.
-        feats = self._features_for_window(idx)
+        feats = self._features_for_window(idx, sst_delta, loop_depth)
         with torch.no_grad():
             x = torch.from_numpy(feats).unsqueeze(0).to(self.device)
             p7, p30 = self.model(x)

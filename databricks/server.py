@@ -162,7 +162,12 @@ def _date_to_index(state: ModelState, date_str: str) -> int:
     return int(np.argmin(np.abs(state.times - target)))
 
 
-def _features_for_window(state: ModelState, end_idx: int) -> np.ndarray:
+def _features_for_window(
+    state: ModelState,
+    end_idx: int,
+    sst_delta: float = 0.0,
+    loop_depth: float = 0.5,
+) -> np.ndarray:
     """Build the (SEQ_LEN, input_size) feature sequence ending at end_idx."""
     start = max(0, end_idx - SEQ_LEN)
     if end_idx - start < SEQ_LEN:
@@ -177,15 +182,21 @@ def _features_for_window(state: ModelState, end_idx: int) -> np.ndarray:
         window = state.raw[start:end_idx]
         actual_start = start
 
+    # Feed the LSTM the same warmed ocean state that drives the risk heatmap
+    # so the 7d / 30d heads respond to climate-scenario changes in the UI.
+    warming_m = sst_delta * (WARMING_OFFSET / 2.0)
+    loop_boost = (loop_depth - 0.5) * 0.03
+    adjusted_window = window + warming_m + loop_boost
+
     if not state.use_cnn:
-        lc = window.mean(axis=(1, 2))
+        lc = adjusted_window.mean(axis=(1, 2))
         return np.stack([lc, lc, lc], axis=1).astype(np.float32)
 
     chans = build_three_channels(
-        state.raw, actual_start, actual_start + SEQ_LEN,
+        adjusted_window, 0, adjusted_window.shape[0],
         state.std_ch, state.lag,
     )[:SEQ_LEN]
-    if window.shape[0] != state.raw[actual_start:actual_start + SEQ_LEN].shape[0]:
+    if adjusted_window.shape[0] != SEQ_LEN:
         chans = chans[-window.shape[0]:]
         if chans.shape[0] < SEQ_LEN:
             chans = np.concatenate(
@@ -202,7 +213,7 @@ def _features_for_window(state: ModelState, end_idx: int) -> np.ndarray:
 def predict_one(state: ModelState, date: str, sst_delta: float, loop_depth: float) -> dict:
     idx = _date_to_index(state, date)
 
-    feats = _features_for_window(state, idx)
+    feats = _features_for_window(state, idx, sst_delta, loop_depth)
     with torch.no_grad():
         x = torch.from_numpy(feats).unsqueeze(0).to(state.device)
         p7, p30 = state.model(x)
