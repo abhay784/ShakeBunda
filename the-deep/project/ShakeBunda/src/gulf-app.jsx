@@ -2,6 +2,35 @@
 
 const { useState, useEffect, useRef, useMemo } = React;
 
+// Narrative status line — converts raw numbers to the sentence a decision-maker
+// would read at a glance. Keeps the same state visible as the old instrument
+// bar but in a completely different register.
+function buildStatusLine({ t, anomaly, eddies, mode }) {
+  const yearVal = 1985 + t * 40;
+  const year = Math.floor(yearVal);
+  const monthIdx = Math.min(11, Math.floor((yearVal - year) * 12));
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  const monthYear = `${months[monthIdx]} ${year}`;
+
+  const peak = eddies.reduce((p, e) => Math.max(p, e.strength), 0);
+  const lcActive = eddies.filter(e => e.x > 0.55 && e.x < 0.8 && e.y > 0.35).length > 0;
+  const hotEddies = eddies.filter(e => e.strength > 0.65).length;
+
+  let riskPhrase;
+  if (peak > 0.85) riskPhrase = 'Eastern Gulf at high RI risk';
+  else if (peak > 0.65) riskPhrase = 'Elevated intensification potential';
+  else if (peak > 0.45) riskPhrase = 'Normal seasonal conditions';
+  else riskPhrase = 'Low basin energy';
+
+  const lcPhrase = lcActive ? 'Loop Current actively shedding' : 'Loop Current quiet';
+  const eddyPhrase = `${hotEddies} warm eddies detected`;
+
+  const label = mode === 'predicted' ? `Projection · +${anomaly.toFixed(1)}°C` : monthYear;
+
+  return `${label} · ${lcPhrase} · ${riskPhrase} · ${eddyPhrase}`;
+}
+
 function App() {
   const TW = window.__TWEAKS__ || {};
   const [t, setT] = useState(() => {
@@ -106,14 +135,14 @@ function App() {
       />
 
       <main className="gw-main">
-        {/* Top status bar */}
+        {/* Top status bar — human-readable narrative summary */}
         <div className="gw-topbar">
           <div className="gw-top-left">
-            <span className="gw-breadcrumb active">GULF · 18–31°N · 98–80°W</span>
-            <span className="gw-top-chip"><i className="gw-dot live"/>{mode==='predicted'?'ORM-v3':'HINDCAST'}</span>
+            <span className="gw-top-chip"><i className="gw-dot live"/>{mode==='predicted'?'CLIMATE PROJECTION':'HISTORICAL'}</span>
+            <span className="gw-top-stat gw-status-line">{buildStatusLine({t, anomaly, eddies, mode})}</span>
           </div>
           <div className="gw-top-right">
-            <span className="gw-top-stat">{eddyCount} eddies · {(Math.max(...eddies.map(e=>e.strength*17+8), 0)).toFixed(1)}cm peak</span>
+            <span className="gw-top-stat">{eddyCount} warm eddies · {(Math.max(...eddies.map(e=>e.strength*17+8), 0)).toFixed(1)} cm peak</span>
           </div>
         </div>
 
@@ -151,7 +180,7 @@ function App() {
                 <b>26.4°N · 88.2°W</b>
                 <span>SSH <i>{(Math.sin(t*30)*8+12).toFixed(1)} cm</i></span>
                 <span>SST <i>{(28.4 + anomaly).toFixed(1)} °C</i></span>
-                <span>UOHC <i>{(85 + anomaly*18).toFixed(0)} kJ/cm²</i></span>
+                <span>Ocean Heat Content <i>{(85 + anomaly*18).toFixed(0)} kJ/cm²</i></span>
               </div>
             </div>
 
@@ -164,8 +193,7 @@ function App() {
             )}
 
             <div className="gw-stage-meta">
-              <span>FRAME {((t*14610)|0).toString().padStart(5,'0')} / 14610</span>
-              <span>· AVISO L4 DUACS-2021 · 0.25°</span>
+              <span>{mode==='predicted' ? `Projecting +${anomaly.toFixed(1)} °C` : `Replaying ${new Date(1985 + t*40, 0, 1).getFullYear()}`}</span>
               <span>· {playing ? `▶ ${speed}×` : '❚❚ paused'}</span>
             </div>
           </div>

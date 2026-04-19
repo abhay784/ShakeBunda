@@ -50,8 +50,10 @@ function vnoise(x, y, s) {
 }
 
 // Compute SSH value at normalized (x,y) and time t (0..1 over 40 years)
+// NOTE: field is computed everywhere so hurricane signatures visually cross
+// coastlines. Over land the value is damped (storms weaken after landfall).
 function sshAt(x, y, t, anomaly = 0) {
-  if (!gulfMask(x, y)) return NaN;
+  const onWater = gulfMask(x, y);
   // Baseline: slightly higher in center
   let v = 0.0;
   // Loop Current: a meandering ridge from Yucatan up & east toward FL straits
@@ -92,6 +94,12 @@ function sshAt(x, y, t, anomaly = 0) {
   v += (vnoise(x*22, y*22, 7) - 0.5) * 0.12;
   // Temperature anomaly amplifies positive SSH
   v = v * (1 + anomaly * 0.55);
+  // Land damping — storms lose ocean heat input on landfall, so we fade the
+  // SSH signature there to ~45% of its oceanic value. Cold anomalies (<0)
+  // are pushed further toward neutral so we don't paint land with navy.
+  if (!onWater) {
+    v = v > 0 ? v * 0.45 : v * 0.2;
+  }
   return Math.max(-1, Math.min(1.2, v));
 }
 
@@ -180,6 +188,10 @@ function detectEddies(grid, thresh = 0.55) {
     for (let i = 2; i < COLS-2; i++) {
       const v = grid[j*COLS+i];
       if (isNaN(v) || v < thresh) continue;
+      // Reject peaks that fall on land (v is damped there so it rarely crosses
+      // thresh, but guard explicitly in case a coastal cell just barely does).
+      const x = i/(COLS-1), y = 1 - j/(ROWS-1);
+      if (!gulfMask(x, y)) continue;
       let peak = true;
       for (let dj=-1; dj<=1 && peak; dj++)
         for (let di=-1; di<=1 && peak; di++)
@@ -457,6 +469,9 @@ function GulfMap({
     if (parts.length > N) parts.length = N;
 
     function spawn() {
+      // Prefer spawning in water so the flow field has meaningful bias; but
+      // particles are now allowed to drift over land with reduced opacity
+      // (they just fade rather than die).
       let x, y, tries = 0;
       do {
         x = Math.random(); y = Math.random();
@@ -483,10 +498,15 @@ function GulfMap({
         const ny = P.y + fy * 0.003;
         const v = sample(g, P.x, P.y);
 
-        if (!gulfMask(P.x, P.y) || P.life++ > P.maxLife || isNaN(v)) {
+        // Respawn only when particle exits the canvas or runs out of life.
+        // Land is no longer a hard kill zone — storms cross it while fading.
+        if (nx < 0 || nx > 1 || ny < 0 || ny > 1 ||
+            P.life++ > P.maxLife || isNaN(v)) {
           Object.assign(P, spawn());
           continue;
         }
+
+        const overLand = !gulfMask(P.x, P.y);
 
         // color by local SSH
         let r, gC, b;
@@ -495,7 +515,10 @@ function GulfMap({
         else if (v < 0.8) { r=255; gC=210; b=130; }
         else { r=255; gC=90; b=130; }
 
-        const alpha = Math.min(1, spd*4) * (0.5 + 0.5*Math.sin(P.life/P.maxLife*Math.PI));
+        // Over land: particle trails read as ghosted/fading rather than
+        // disappearing — physically matches a weakening storm after landfall.
+        const landFade = overLand ? 0.35 : 1.0;
+        const alpha = Math.min(1, spd*4) * (0.5 + 0.5*Math.sin(P.life/P.maxLife*Math.PI)) * landFade;
         ctx.strokeStyle = `rgba(${r},${gC},${b},${alpha*0.9})`;
         ctx.lineWidth = 0.9 + (v > 0.6 ? 0.6 : 0);
         ctx.beginPath();

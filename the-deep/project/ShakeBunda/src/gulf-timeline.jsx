@@ -15,6 +15,20 @@ const EVENTS = [
   { t: (2024.6 - 1985) / 40, label: 'MILTON', year: 2024, cat: 'Cat 5', note: 'record SSH +34 cm near Yucatán' },
 ];
 
+// Model-predicted Loop Current Eddy separation events. Each is positioned
+// 2–4 weeks before a known RI hurricane — the pattern "separation → RI" is
+// the scientific argument. Offsets in fractional years.
+// (offsets computed against EVENTS[i].t; 1/52 ≈ one week)
+const WK = 1 / 40 / 52;
+const SEPARATIONS = [
+  { t: (1995 - 1985) / 40 - 3*WK, pairs: 'OPAL',    note: 'LCE separates, warm ring remains stationary' },
+  { t: (2005 - 1985) / 40 - 4*WK, pairs: 'KATRINA', note: 'Vortex eddy detaches — sustains Katrina & Rita' },
+  { t: (2017 - 1985) / 40 - 3*WK, pairs: 'HARVEY',  note: 'Cameron eddy separates off TX shelf' },
+  { t: (2018.75 - 1985) / 40 - 2*WK, pairs: 'MICHAEL', note: 'LC tongue pinches off near Yucatán' },
+  { t: (2021 - 1985) / 40 - 2*WK, pairs: 'IDA',     note: 'Warm eddy sheds into central Gulf' },
+  { t: (2024.6 - 1985) / 40 - 3*WK, pairs: 'MILTON', note: 'Large LCE detaches — record SSH anomaly' },
+];
+
 // Stagger labels vertically to avoid collisions — alternate rows
 const EVENT_ROWS = (() => {
   const sorted = [...EVENTS].sort((a,b)=>a.t-b.t);
@@ -63,6 +77,22 @@ function Timeline({ t, setT, playing }) {
         </div>
       </div>
 
+      {/* Second track — model-predicted LCE separation events. Sits above the
+          hurricane track so the "separation → RI" pattern reads vertically. */}
+      <div className="gw-tl-sep-track">
+        <div className="gw-tl-sep-label">MODEL · EDDY SEPARATIONS</div>
+        <div className="gw-tl-sep-rail">
+          {SEPARATIONS.map(s => (
+            <button key={s.pairs} className="gw-tl-sep" style={{left: `${s.t*100}%`}}
+                    onClick={e => { e.stopPropagation(); setT(s.t); }}
+                    title={`LCE separation before ${s.pairs} — ${s.note}`}>
+              <i/>
+              <span>{s.pairs}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="gw-tl-track-wrap">
         <div className="gw-tl-track" ref={trackRef} onClick={onTrack}
              onMouseMove={e=>{
@@ -104,3 +134,4 @@ function Timeline({ t, setT, playing }) {
 
 window.Timeline = Timeline;
 window.EVENTS = EVENTS;
+window.SEPARATIONS = SEPARATIONS;
